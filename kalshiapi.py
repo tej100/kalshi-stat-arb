@@ -123,20 +123,26 @@ def GetMarketCandlesticks(*, market_ticker: str, series_ticker: str, start_ts: i
 
 API_KEY = ""  #TODO: Add your API key here
 SERIES_TICKER = "KXINXY"
-EVENT_TICKER = "KXINXY-25DEC31"
+EVENT_TICKER = "INXD-24DEC31"
 
 market_tickers = GetMarketsFromEvent(event_ticker=EVENT_TICKER)[1:-1]  # Remove lower and upper bound markets
 
 # Start and end should be 11/6/2024 and 12/5/2024
-start_ts = int(datetime.datetime(2024, 11, 6, 16, 0, 0).timestamp())
-end_ts = int(datetime.datetime(2024, 12, 6, 16, 0, 0).timestamp())
+
+start_date = datetime.datetime(2024, 1, 1, 16, 0, 0)
+end_date = datetime.datetime(2024, 12, 7, 16, 0, 0)
+
+start_ts = int(start_date.timestamp())
+end_ts = int(end_date.timestamp())
 period_interval = 1440
 
-master_df = pd.DataFrame(columns=market_tickers, index=pd.date_range(start=datetime.date(2024, 11, 6), end=datetime.date(2024, 12, 6), freq="D"))
+master_df = pd.DataFrame(columns=market_tickers, index=pd.date_range(start=start_date.date(), end=end_date.date(), freq="D"))
 
 for MARKET_TICKER in market_tickers:
     data = GetMarketCandlesticks(market_ticker=MARKET_TICKER, series_ticker=SERIES_TICKER, start_ts=start_ts, end_ts=end_ts, period_interval=period_interval)
+    print(data)
     data = pd.DataFrame(data["candlesticks"])
+    if data.empty: continue
     data.index = pd.to_datetime(data["end_period_ts"], unit="s")
     data.index = data.index.normalize()
     # Current values are dictionaries, I only want the "Close" value from the dictionary and I want to make it a float
