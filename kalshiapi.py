@@ -123,30 +123,36 @@ def GetMarketCandlesticks(*, market_ticker: str, series_ticker: str, start_ts: i
 
 API_KEY = ""  #TODO: Add your API key here
 SERIES_TICKER = "KXINXY"
-EVENT_TICKER = "INXD-24DEC31"
-
-market_tickers = GetMarketsFromEvent(event_ticker=EVENT_TICKER)[1:-1]  # Remove lower and upper bound markets
-
-# Start and end should be 11/6/2024 and 12/5/2024
-
-start_date = datetime.datetime(2024, 1, 1, 16, 0, 0)
-end_date = datetime.datetime(2024, 12, 7, 16, 0, 0)
-
-start_ts = int(start_date.timestamp())
-end_ts = int(end_date.timestamp())
+EVENT_TICKERS = {2022 : "INXY-22DEC30", 2023 : "INXY-23DEC29", 2024 : "INXY-24DEC31"}
 period_interval = 1440
 
-master_df = pd.DataFrame(columns=market_tickers, index=pd.date_range(start=start_date.date(), end=end_date.date(), freq="D"))
+master_data = {}
 
-for MARKET_TICKER in market_tickers:
-    data = GetMarketCandlesticks(market_ticker=MARKET_TICKER, series_ticker=SERIES_TICKER, start_ts=start_ts, end_ts=end_ts, period_interval=period_interval)
-    print(data)
-    data = pd.DataFrame(data["candlesticks"])
-    if data.empty: continue
-    data.index = pd.to_datetime(data["end_period_ts"], unit="s")
-    data.index = data.index.normalize()
-    # Current values are dictionaries, I only want the "Close" value from the dictionary and I want to make it a float
-    prices = data[["yes_bid", "yes_ask", "price"]].apply(lambda x : x.apply(lambda y : y["close"]))
-    master_df[MARKET_TICKER] = prices["price"]
+for year, EVENT_TICKER in EVENT_TICKERS.items():
 
-print(master_df)
+    market_tickers = GetMarketsFromEvent(event_ticker=EVENT_TICKER)[1:-1]  # Remove lower and upper bound markets
+
+    start_date = datetime.datetime(year, 1, 1, 16, 0, 0)
+    end_date = datetime.datetime(year, 12, 31, 16, 0, 0)
+
+    start_ts = int(start_date.timestamp())
+    end_ts = int(end_date.timestamp())
+
+    temp = pd.DataFrame(columns=market_tickers, index=pd.date_range(start=start_date.date(), end=end_date.date(), freq="D"))
+
+    for MARKET_TICKER in market_tickers:
+        # Only get data for same year market
+        data = GetMarketCandlesticks(market_ticker=MARKET_TICKER, series_ticker=SERIES_TICKER, start_ts=start_ts, end_ts=end_ts, period_interval=period_interval)
+        data = pd.DataFrame(data["candlesticks"])
+        if data.empty: continue
+        data.index = pd.to_datetime(data["end_period_ts"], unit="s")
+        data.index = data.index.normalize()
+    
+        prices = data[["yes_bid", "yes_ask", "price"]].apply(lambda x : x.apply(lambda y : y["close"]))
+        temp[MARKET_TICKER] = prices["price"]
+
+    # Column names are of this format "INXD-24DEC31-B3300" I want to extract the price from this and change the column name to be a string that represents the range (price-100, price+99.99)
+    temp.columns = [str(float(col.split("-")[2][1:]) - 100) + "-" + str(float(col.split("-")[2][1:]) + 99.99) for col in temp.columns.tolist()]
+    master_data[year] = temp
+
+print(master_data)
