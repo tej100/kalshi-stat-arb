@@ -2,12 +2,18 @@ import numpy as np
 import pandas as pd
 import warnings
 from scipy.stats import norm
-from scipy.interpolate import UnivariateSpline
+from scipy.interpolate import UnivariateSpline, PchipInterpolator
+import matplotlib.pyplot as plt
 
 class RNDPricer:
     def __init__(self, chain):
         # init df
-        self.df = chain[chain['option_type']=='c'].copy()
+        self.df = chain.copy()
+        self.S0 = self.df['underlying'].values[0]
+
+        # get OTM call iv and OTM put iv
+        self.df = self.df[((self.df['option_type']=='c') & (self.df['strike'] >= self.S0)) | ((self.df['option_type']=='p') & (self.df['strike'] < self.S0))]
+        
         self.df.sort_values('strike', inplace=True)
         self.df.dropna(subset=['Implied Volatility'], inplace=True)
         
@@ -17,7 +23,6 @@ class RNDPricer:
             raise ValueError('Empty chain')
         
         # init constants
-        self.S0 = self.df['underlying'].values[0]
         self.F = self.df['fwd'].values[0]
         self.T = self.df['T'].values[0] / 365
         self.DF = self.df['DF'].values[0]
@@ -28,7 +33,8 @@ class RNDPricer:
         self.iv = self.df['Implied Volatility'].values
         
         # interpolation range over strike
-        self.K_grid = np.linspace(self.strikes.min(), self.strikes.max(), 5000)
+        # necessary evil to make everything work
+        self.K_grid = np.linspace(max(self.strikes.min()-2000, 100), self.strikes.max()+1000, 5000)
         
         # init RND for pricing
         self.__init_rnd()
@@ -50,28 +56,43 @@ class RNDPricer:
         smooth_calls = self.__bs_call_surface(smooth_vols)
         
         # get 2nd derivative of call prices
-        fp = np.gradient(smooth_calls)
-        fpp = np.gradient(fp)
+        fp = np.gradient(smooth_calls, self.K_grid)
+        fpp = np.gradient(fp, self.K_grid)
         
-        # no negatives
+        # trim ends by two for gradient errors
+        fpp = fpp[2:-2]
+        self.K_grid = self.K_grid[2:-2]
+        
+        # lhs, enforce decreasing
+        peak = np.argmax(fpp)        
+        if fpp[0] > 0:
+            lhs_min = np.argmin(fpp[:peak])
+            fpp[:lhs_min] = np.flip(np.minimum.accumulate(np.flip(fpp[:lhs_min])))
+            
+        # rhs, enforce decreasing 
+        if fpp[-1] > 0:
+            rhs_min = peak + np.argmin(fpp[peak:])
+            fpp[rhs_min:] = np.minimum.accumulate(fpp[rhs_min:])
+        
+        # rhs, correct for positive values with linear interp to zero
+        if fpp[-1] > 0:
+            rhs_min = peak + np.argmin(fpp[peak:])
+            
+            # linear interp to zero
+            fpp[rhs_min:] = np.interp(self.K_grid[rhs_min:], [self.K_grid[rhs_min], self.K_grid[-1]], [fpp[rhs_min], 0.0])
+        
+        
+        # enforce global bound by zero
         fpp = np.maximum(fpp, 0)
-
-        # enforce monotonicity in tails 
-        peak_idx = np.argmax(fpp)
-        peak_idx = np.argmax(fpp)
-        for i in range(peak_idx - 1, -1, -1):
-            fpp[i] = min(fpp[i], fpp[i+1])
-        for i in range(peak_idx + 1, len(fpp)):
-            fpp[i] = min(fpp[i], fpp[i-1])
         
-        # normalizing
+        # normalizing to make integral of cdf = 0
         area = np.trapz(fpp, self.K_grid)
         self.rnd = fpp / area
         
     def __fit_spline_without_warnings(self, maxiter=10):
         # set weights for interpolation to be less important in tails
         weights = np.ones_like(self.strikes)
-        weights[np.abs(self.strikes - self.S0) > 1000] = 0.25
+        #weights[np.abs(self.strikes - self.S0) > 1000] = 0.25
         
         # initialization as per scipy.interpolate.UnivariateSpline
         s = len(weights)
@@ -107,9 +128,9 @@ class RNDPricer:
         # get index mask
         mask = np.logical_and(self.K_grid >= lower, self.K_grid <= upper)
         
-        # throw error if no strikes in interval
+        # if no strikes in interval we can price at 0.00
         if mask.sum() == 0:
-            raise ValueError('No strikes in interval')        
+            return 0.00
         
         # integrate RND over interval
         target_densities = self.rnd[mask]
