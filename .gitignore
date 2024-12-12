@@ -1,3 +1,11 @@
-*.csv
-
+# large files
 spx_w/
+
+# python metadata
+__pycache__/
+.DS_Store
+*.pkl
+
+# storing api keys
+*.key
+api_key.py

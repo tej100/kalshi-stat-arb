@@ -1,6 +1,8 @@
 import pandas as pd
 import requests
 import datetime
+import pickle
+from api_key import key, priv
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
@@ -63,7 +65,8 @@ def auth_headers(path):
 
 
 def GetMarketsFromEvent(*, event_ticker: str):
-    base_url = "https://api.elections.kalshi.com"
+    #base_url = "https://api.elections.kalshi.com"
+    base_url = "https://trading-api.kalshi.com"
     path = "/trade-api/v2/events/" + event_ticker
 
     sig, timestampt_str = auth_headers(path)
@@ -83,6 +86,7 @@ def GetMarketsFromEvent(*, event_ticker: str):
         tickers = []
         for dt in data["markets"]:
             tickers.append(dt["ticker"])
+        print(tickers)
         return tickers
     else:
         print(f"Error: {response.text}")
@@ -92,6 +96,8 @@ def GetMarketsFromEvent(*, event_ticker: str):
 
 def GetMarketCandlesticks(*, market_ticker: str, series_ticker: str, start_ts: int, end_ts: int, period_interval: int):
     base_url = "https://api.elections.kalshi.com"
+    #base_url = "https://trading-api.kalshi.com"
+
     path = "/trade-api/v2/series/" + series_ticker + "/markets/" + market_ticker + "/candlesticks"
 
     sig, timestampt_str = auth_headers(path)
@@ -121,9 +127,9 @@ def GetMarketCandlesticks(*, market_ticker: str, series_ticker: str, start_ts: i
         return []
 
 
-API_KEY = ""  #TODO: Add your API key here
+API_KEY = key
 SERIES_TICKER = "KXINXY"
-EVENT_TICKERS = {2022 : "INXY-22DEC30", 2023 : "INXY-23DEC29", 2024 : "INXY-24DEC31"}
+EVENT_TICKERS = {2022 : "INXY-22DEC30", 2023 : "INXY-23DEC29", 2024 : "INXD-24DEC31"}
 period_interval = 1440
 
 master_data = {}
@@ -137,22 +143,41 @@ for year, EVENT_TICKER in EVENT_TICKERS.items():
 
     start_ts = int(start_date.timestamp())
     end_ts = int(end_date.timestamp())
+    
+    bid_data = pd.DataFrame(columns=market_tickers, index=pd.date_range(start=start_date.date(), end=end_date.date(), freq="D"))
+    ask_data = pd.DataFrame(columns=market_tickers, index=pd.date_range(start=start_date.date(), end=end_date.date(), freq="D"))
+    price_data = pd.DataFrame(columns=market_tickers, index=pd.date_range(start=start_date.date(), end=end_date.date(), freq="D"))
 
-    temp = pd.DataFrame(columns=market_tickers, index=pd.date_range(start=start_date.date(), end=end_date.date(), freq="D"))
+    #temp = pd.DataFrame(columns=market_tickers, index=pd.date_range(start=start_date.date(), end=end_date.date(), freq="D"))
 
     for MARKET_TICKER in market_tickers:
         # Only get data for same year market
-        data = GetMarketCandlesticks(market_ticker=MARKET_TICKER, series_ticker=SERIES_TICKER, start_ts=start_ts, end_ts=end_ts, period_interval=period_interval)
+        data = GetMarketCandlesticks(
+            market_ticker=MARKET_TICKER, 
+            series_ticker=SERIES_TICKER, 
+            start_ts=start_ts, end_ts=end_ts, 
+            period_interval=period_interval
+        )
         data = pd.DataFrame(data["candlesticks"])
         if data.empty: continue
+        
         data.index = pd.to_datetime(data["end_period_ts"], unit="s")
         data.index = data.index.normalize()
     
-        prices = data[["yes_bid", "yes_ask", "price"]].apply(lambda x : x.apply(lambda y : y["close"]))
-        temp[MARKET_TICKER] = prices["price"]
+        prices = data[["yes_bid", "yes_ask", "price"]].apply(lambda x: x.apply(lambda y: y["close"]))
+        bid_data[MARKET_TICKER] = prices["yes_bid"]
+        ask_data[MARKET_TICKER] = prices["yes_ask"]
+        price_data[MARKET_TICKER] = prices["price"]
 
-    # Column names are of this format "INXD-24DEC31-B3300" I want to extract the price from this and change the column name to be a string that represents the range (price-100, price+99.99)
-    temp.columns = [str(float(col.split("-")[2][1:]) - 100) + "-" + str(float(col.split("-")[2][1:]) + 99.99) for col in temp.columns.tolist()]
-    master_data[year] = temp
+    bid_data.columns = [str(float(col.split("-")[2][1:]) - 100) + "-" + str(float(col.split("-")[2][1:]) + 99.99) for col in bid_data.columns.tolist()]
+    ask_data.columns = [str(float(col.split("-")[2][1:]) - 100) + "-" + str(float(col.split("-")[2][1:]) + 99.99) for col in ask_data.columns.tolist()]
+    price_data.columns = [str(float(col.split("-")[2][1:]) - 100) + "-" + str(float(col.split("-")[2][1:]) + 99.99) for col in price_data.columns.tolist()]
 
-print(master_data)
+    master_data[year] = {"tickers": market_tickers, 
+                         "bid": bid_data, "ask": ask_data, 
+                         "price": price_data}
+
+with open("kalshi_data.pkl", "wb") as f:
+    pickle.dump(master_data, f)
+
+print("Data saved to kalshi_data.pkl")
