@@ -1,8 +1,10 @@
+import pickle
 import pandas as pd
 import requests
 import datetime
-import pickle
-from api_key import key, priv
+
+# API key is loaded from api_key.py (gitignored) — never hard-code it here.
+from api_key import key as API_KEY
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
@@ -65,8 +67,7 @@ def auth_headers(path):
 
 
 def GetMarketsFromEvent(*, event_ticker: str):
-    #base_url = "https://api.elections.kalshi.com"
-    base_url = "https://trading-api.kalshi.com"
+    base_url = "https://api.elections.kalshi.com"
     path = "/trade-api/v2/events/" + event_ticker
 
     sig, timestampt_str = auth_headers(path)
@@ -86,7 +87,6 @@ def GetMarketsFromEvent(*, event_ticker: str):
         tickers = []
         for dt in data["markets"]:
             tickers.append(dt["ticker"])
-        print(tickers)
         return tickers
     else:
         print(f"Error: {response.text}")
@@ -96,8 +96,6 @@ def GetMarketsFromEvent(*, event_ticker: str):
 
 def GetMarketCandlesticks(*, market_ticker: str, series_ticker: str, start_ts: int, end_ts: int, period_interval: int):
     base_url = "https://api.elections.kalshi.com"
-    #base_url = "https://trading-api.kalshi.com"
-
     path = "/trade-api/v2/series/" + series_ticker + "/markets/" + market_ticker + "/candlesticks"
 
     sig, timestampt_str = auth_headers(path)
@@ -125,12 +123,12 @@ def GetMarketCandlesticks(*, market_ticker: str, series_ticker: str, start_ts: i
     else:
         print(f"Error: {response.text}")
         return []
+    
 
-
-API_KEY = key
 SERIES_TICKER = "KXINXY"
 EVENT_TICKERS = {2022 : "INXY-22DEC30", 2023 : "INXY-23DEC29", 2024 : "INXD-24DEC31"}
 period_interval = 1440
+
 
 master_data = {}
 

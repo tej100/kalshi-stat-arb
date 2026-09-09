@@ -9,3 +9,18 @@ __pycache__/
 # storing api keys
 *.key
 api_key.py
+
+# generated pipeline outputs (reproducible via the package / notebook)
+artifacts/
+spx_w.zip
+
+# LaTeX build artifacts
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.bbl
+paper/*.blg
+paper/*.fls
+paper/*.fdb_latexmk
+paper/build.log
