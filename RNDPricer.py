@@ -149,12 +149,3 @@ class RNDPricer:
         target_densities = self.rnd[mask]
         target_strikes = self.K_grid[mask]
         return np.trapz(target_densities, target_strikes)
-    
-    
-        
-        
-        
-        
-        
-        
-    
