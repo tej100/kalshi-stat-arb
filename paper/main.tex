@@ -1,0 +1,184 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{parskip}
+\usepackage{fullpage}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{makecell}
+\usepackage{subfig}
+\usepackage{multirow}
+\usepackage{wrapfig}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue, filecolor=magenta, urlcolor=cyan,
+    pdftitle={Event Contract Mispricing via Options-Implied Probabilities},
+    pdfpagemode=FullScreen}
+\urlstyle{same}
+\graphicspath{{figures/}}
+
+\title{Event Contract Mispricing via Options-Implied Probabilities}
+\author{Tejas Appana}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%% ============================================================= %%
+%% NOTE (draft): Results narrative below reflects the RISK-MANAGED %%
+%% strategy (>= 1 lot per bucket, no pyramiding). All parameters   %%
+%% and assumptions are documented in ASSUMPTIONS.md; numeric       %%
+%% constants live in kalshi_arb/config.py. Figures are regenerated %%
+%% by paper/make_figures.py.                                       %%
+%% ============================================================= %%
+
+\section{Abstract}
+
+This study investigates the profitability of a statistical arbitrage strategy applied to binary outcome contracts on the Kalshi Exchange, focusing on end-of-year S\&P 500 price buckets. The objective is to assess whether derivatives-implied probability distributions can identify mispriced contracts in Kalshi's event markets.
+
+Probability mass functions are derived from SPX options using two approaches: a risk-neutral density (RND) extracted via the Breeden--Litzenberger method applied to a smoothed implied-volatility surface, and a Geometric Brownian Motion (GBM) benchmark using at-the-money implied volatility. Cleaned and interpolated option-chain data construct these distributions daily; they are compared to Kalshi's order-book-implied probabilities to build long--short portfolios of under- and over-priced contracts. To keep risk bounded on a small capital base, exposure is capped at a single lot per bucket (no pyramiding). Performance is benchmarked against the SPX index using Sharpe ratio, drawdowns, volatility, and alpha/beta.
+
+Backtesting from 2022 to 2024 shows that, under risk-managed position sizing, the option-implied signals produce small but generally positive, low-drawdown, near market-neutral returns, with the Breeden--Litzenberger method delivering the best risk-adjusted result in 2023 (Sharpe $0.67$). An independent, model-free check --- replicating each Kalshi bucket with an SPX iron condor --- finds that roughly one quarter of bucket quotes exhibit a cross-market dislocation larger than the replication cost, corroborating the density-based signal. Execution limitations, low liquidity, and missing end-of-year 2024 data constrain realized performance. Across all years the strategies show low correlation to SPX.
+
+These findings suggest option-implied information can help detect pricing inefficiencies in prediction markets, though a realistic, risk-controlled implementation yields modest rather than dramatic returns. Ongoing improvements focus on hedged execution, expanded contract coverage, and fee-free limit-order modeling.
+
+\section{Introduction to Kalshi}
+Kalshi is a federally regulated exchange that allows traders to speculate on real-world events through the trading of ``event contracts.'' These contracts are priced according to the collective expectations of the market of an event occurring, providing a platform that blends financial markets with prediction markets. Kalshi's offerings span a wide range of topics, from traditional economic indicators to unconventional events such as weather and U.S. presidential election outcomes. Operating under the oversight of the Commodity Futures Trading Commission (CFTC), Kalshi provides a regulated framework for traders.
+
+Event contracts are structured similarly to binary options, with a payout of 100 cents if the predicted event occurs and 0 cents otherwise. For example, if the market estimates a 40\% chance that the S\&P 500 Index (SPX) will close within a specific range---say, \$5250 to \$5500---on a given day, the corresponding contract is priced at 40 cents. Upon expiration, the contract settles at its payoff value based on the event outcome. The focus of this project is Kalshi contracts tied to the year-end closing price of the S\&P 500, which define payout ``buckets'' for specific \$200-wide price ranges (e.g., \$6000--\$6199.99).
+
+Several features of the Kalshi exchange should be considered. Relative to standardized exchanges, Kalshi markets operate 24/7, so SPX-related trades can be placed after-hours. Kalshi offers an open order-book market with market makers supplying liquidity when possible. Mark-to-market is net of fees; there are no fees for limit orders, but market-order fees are $\lceil 0.035\cdot C\cdot p\cdot (1-p) \rceil$ cents, where $C$ is the contract size and $p$ the contract price. Because contract prices are bounded in $(0,1)$ regardless of horizon, Kalshi pays a 3.75\% APY on cash \emph{and} on all open positions, effectively leveraging a fully-invested portfolio. As shown later, this feature materially affects strategy returns.
+
+\section{Data Preprocessing}
+This study draws on two datasets: SPXW option-chain data obtained via Refinitiv through Hanlon Labs, and Kalshi event-contract order-book data accessed through Kalshi's Python API. The raw options dataset contains 344{,}720 quotes spanning 01/03/2022 to 11/19/2024, including bid/ask quotes, implied volatilities, dividend assumptions, spot and forward prices, and discount factors across strikes and expirations. The Kalshi data is structured as discrete, non-overlapping \$200 price buckets representing daily SPX year-end outcomes (13 buckets per year). Only SPXW options whose expirations align with Kalshi's year-end horizon are retained, and quotes are back-filled to non-trading days to match Kalshi's calendar.
+
+\subsection{Option Chain Cleaning}
+Records missing bid, ask, \emph{and} implied volatility simultaneously are removed. Numeric columns are coerced to consistent types and dates standardized. Mid-prices are the average of bid and ask when both are present; if only one side is quoted, the other is assumed to be zero (giving a theoretical mid of half the quoted side), and such a quote is retained only if the Black--Scholes model price (at the vendor implied volatility) is within \$0.50 of that theoretical mid, otherwise it is discarded.
+
+\begin{wrapfigure}{r}{0.4\textwidth}
+  \begin{center}\includegraphics[width=0.4\textwidth]{moneyness_distribution.png}\end{center}
+  \caption{Moneyness distribution}\label{fig:moneyness}
+\end{wrapfigure}
+
+A quote is deemed illiquid if its bid--ask spread exceeds 30\% of the mid-price, a generous threshold that primarily filters deep OTM/ITM options. Moneyness is defined as $K/F$ for calls and $2 - K/F$ for puts, where $K$ is the strike and $F$ the forward price, so the distribution centers at 1 (Figure~\ref{fig:moneyness}). Quotes more than two standard deviations from the mean moneyness are excluded as deep ITM/OTM.
+
+Transformations scale implied volatilities from percent to decimal, convert time-to-maturity from days to years, and derive the implied continuous rate $r=-\ln(D)/T$ from the discount factor $D$. Spot prices are adjusted for discrete dividends as $S = S_0 - q\cdot D$, where $q$ is the total dollar dividend expected before expiry; this adjusted spot is used throughout, and the forward is $F = S\,e^{rT}$.
+
+To secure a continuous volatility surface, implied volatilities missing from the vendor feed but having a valid mid-price are recovered by inverting the Black--Scholes formula via bisection. In our reproducible pipeline this reduces missing implied volatilities from 3{,}372 to 89, after which 310{,}525 of the original 344{,}720 quotes remain.
+
+\subsection{Implied Volatility Smoothing}
+For each quote date and option type, a least-squares univariate spline (LSQ) is fitted to implied volatility as a function of strike. Interior knots are placed at strike quantiles (guaranteeing the Schoenberg--Whitney condition for clustered strikes), and flat extrapolation is used outside the observed strike range to avoid unrealistic wings and negative volatilities. The smoothed series, ``LSQ\_Vol,'' is the basis for pricing and density estimation (Figure~\ref{fig:smoothing}).
+
+Several alternatives were evaluated before selecting LSQ splines --- LOWESS, cubic splines, polynomial regression, PCHIP, and the SABR model --- and are documented separately; LSQ splines gave the best balance of smoothness, local flexibility, and stability without introducing arbitrage.
+
+\begin{figure}[ht]\centering
+  \subfloat[IV smoothing]{\includegraphics[width=0.48\textwidth]{smoothing_example.png}\label{fig:smoothing}}\hfill
+  \subfloat[Model vs market]{\includegraphics[width=0.48\textwidth]{model_vs_market.png}\label{fig:modelmkt}}
+  \caption{Volatility smoothing and pricing versus market (calls, 06/23/2023)}
+\end{figure}
+
+\subsection{Pricing Mechanism}
+Options are priced with a spot-based Black--Scholes--Merton model on the dividend-adjusted spot $S$ with rate $r$ and volatility LSQ\_Vol:
+\[ C = S\,N(d_1) - K e^{-rT} N(d_2), \quad P = K e^{-rT} N(-d_2) - S\,N(-d_1),\quad
+d_1 = \frac{\ln(S/K) + (r + \sigma^2/2)T}{\sigma \sqrt{T}},\; d_2 = d_1 - \sigma\sqrt{T}. \]
+To reduce bias from BSM's assumptions, a control-variate adjustment nudges the model toward the market mid, $\text{Price}_{adj} = \text{Price}_{BSM} + \lambda(\text{Mid} - \text{Price}_{BSM})$, with a fixed $\lambda = 0.2$. Against observed mids, the adjusted model achieves a mean absolute error of \$4.52 and RMSE of \$9.36 (Figure~\ref{fig:modelmkt}).
+
+\section{Density Formation}
+We construct benchmark estimates of the market-implied risk-neutral terminal distribution of SPX and discretize them to Kalshi's buckets. Two methods are carried forward --- the model-free Breeden--Litzenberger result and a GBM benchmark --- and a third heuristic (option price spreads) is described but discarded.
+
+\subsection{Breeden--Litzenberger Risk-Neutral Density}
+Under no-arbitrage, the risk-neutral density of the terminal underlying is recovered from the convexity of call prices in strike; dividing by the discount factor expresses it as a true (undiscounted) probability density:
+\[ f_Q(K) = \frac{1}{DF}\,\frac{\partial^2 C(K)}{\partial K^2} = e^{rT}\,\frac{\partial^2 C(K)}{\partial K^2}. \]
+We build the smoothed volatility curve from \emph{out-of-the-money} options (puts below the forward, calls above), which are less noisy than deep in-the-money quotes, and evaluate synthetic BSM call prices on a \emph{wide} strike grid (extended beyond the observed strikes using flat-volatility extrapolation) so the density has near-full support. The second derivative is taken by finite differences and clipped at zero to remove differentiation noise. Bucket probabilities are the trapezoidal integral $P([L,U]) = \int_L^U f_Q(K)\,dK$.
+
+Crucially, the density is \emph{not} renormalized to integrate to one, and bucket probabilities are \emph{not} rescaled to sum to 100\%: the residual mass is the genuine probability that SPX breaches every predefined Kalshi bucket. The undiscounted $P([L,U])$ is compared directly to the Kalshi contract price, since the exchange's APY on positions already compensates for time value. On a representative date the recovered density integrates to $\approx 1$ on the wide grid without any rescaling and is centered on the forward (Figure~\ref{fig:density}).
+
+\subsection{Parametric Benchmark via Geometric Brownian Motion}
+As a computationally trivial benchmark we assume a lognormal terminal law,
+\[ \log(S_T/S_0) \sim \mathcal N\!\left((r - \tfrac12\sigma^2)T,\ \sigma^2 T\right), \qquad
+P([L,U]) = \Phi(d(U)) - \Phi(d(L)),\quad d(K) = \frac{\ln(K/S_0) - (r - \tfrac12\sigma^2)T}{\sigma\sqrt{T}}, \]
+where $S_0$ is the dividend-adjusted \emph{spot}, $\sigma$ is the smoothed at-the-money implied volatility (strike nearest the forward), and $T$ is time to expiry. (The drift term $r$ implies a spot---not forward---anchor.) This benchmark captures location and scale but imposes symmetry and constant volatility, limiting its ability to capture skew and fat tails.
+
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.95\textwidth]{density_example.png}
+  \caption{Breeden--Litzenberger RND and bucket probabilities versus Kalshi (06/23/2023). The BL--Kalshi gaps are the mispricing signal the strategy trades.}\label{fig:density}
+\end{figure}
+
+\subsection{Direct Estimation from Option Price Spreads (discarded)}
+A heuristic estimating bucket probabilities from call/put price slopes across strikes, distance-weighted between calls and puts, was also tested. In practice it was unstable --- strike granularity and missing strikes produced erratic, poorly normalized PMFs --- and it was discarded from active strategy development, consistent with prior expectations.
+
+\section{Strategy Considerations}
+\textbf{Portfolio and benchmarking.} Performance metrics use daily returns annualized with a 252-day factor \emph{for both the strategy and the SPX benchmark}. A constant 3\% annual risk-free rate is used for Sharpe/alpha. Portfolios are marked to market at the most recent order-book prices (long positions exit at the bid, shorts at the ask), and execution uses market orders with Kalshi's fee schedule.
+
+\textbf{Position sizing and risk control.} A lot size of 8 contracts is used, selected by a power-of-two hypertuning exercise balancing fee efficiency against liquidity. To keep risk bounded on the small capital base, \emph{exposure is capped at a single lot per bucket}: a repeat same-direction signal on a bucket already held is skipped, and an opposite signal closes the position. This ``no-pyramiding'' rule is the key difference from an unconstrained accumulation strategy, which --- while capable of large end-of-year settlement payoffs --- drives portfolio value through zero and renders return-based metrics ill-defined.
+
+\textbf{Capital and fees.} The portfolio starts with \$200 of cash, providing a drawdown buffer given the capped exposure. All executions incorporate Kalshi's fee schedule, and the 3.75\% APY on cash and open positions is accrued monthly.
+
+All thresholds and parameters above are centralized in the accompanying code (\texttt{config.py}) and documented in \texttt{ASSUMPTIONS.md}.
+
+\section{Results}
+
+\subsection{Strategy Execution}
+The strategy buys a bucket when the model probability exceeds the Kalshi ask (including fees) and sells when it is below the Kalshi bid (net of fees). Because trades must be fillable in the order book, we distinguish the theoretical portfolio (mark-to-model) from the executed portfolio (mark-to-market); their correlation ($\rho$) measures how closely the realizable strategy tracks the ideal one. The executed strategy is benchmarked against the SPX index (Figures~\ref{fig:strat_bench}, \ref{fig:strat_model}).
+
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.98\textwidth]{strategy_vs_benchmark.png}
+  \caption{Risk-managed Breeden--Litzenberger strategy (both sides) versus a normalized SPX benchmark, by year.}\label{fig:strat_bench}
+\end{figure}
+
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.98\textwidth]{strategy_vs_model.png}
+  \caption{Executed (mark-to-market) versus theoretical (mark-to-model) portfolio, by year.}\label{fig:strat_model}
+\end{figure}
+
+\subsection{Performance}
+Contracts expire at year-end, so each year is tested separately with held positions settled at the true year-end S\&P 500 close. Table~\ref{tab:perf} summarizes the Breeden--Litzenberger (BL) and GBM densities under risk-managed sizing (both-side portfolio).
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c|c|c|c|c}
+    Year & Model & Ann Return & Ann Vol & Sharpe & Max DD & Alpha (daily) & Beta & Model $\rho$ \\
+    \hline
+    \multirow{2}{*}{2022}
+    & GBM & 5.90\% & 3.78\% & 0.77 & -3.30\% & 0.01\% & 0.00 & -0.03 \\
+    & BL  & 2.57\% & 5.02\% & -0.09 & -3.92\% & -0.00\% & -0.00 & 0.01 \\
+    \hline
+    \multirow{2}{*}{2023}
+    & GBM & 3.69\% & 2.69\% & 0.26 & -2.03\% & 0.00\% & 0.011 & 0.02 \\
+    & BL  & 5.01\% & 3.02\% & 0.67 & -1.79\% & 0.01\% & 0.018 & 0.04 \\
+    \hline
+    \multirow{2}{*}{2024}
+    & GBM & 4.41\% & 26.67\% & 0.05 & -24.06\% & 0.00\% & 0.035 & -0.02 \\
+    & BL  & 11.03\% & 37.20\% & 0.22 & -33.65\% & 0.03\% & 0.084 & 0.02 \\
+\end{tabular}
+\captionof{table}{Risk-managed performance (1 lot/bucket, both-side portfolio). 2024 omits the last two months of option data, and SPX finished above every 2024 bucket.}\label{tab:perf}
+\end{center}
+
+Splitting into ``buy-only'' and ``sell-only'' sub-portfolios shows both sides contribute small positive returns in 2022--2023 (e.g., BL 2023: buy $+2.5\%$, sell $+2.9\%$), while 2024's buy-only leg is roughly flat and the sell-only leg drives the volatile result as SPX rallies out of the bucket range.
+
+\subsection{Strategy Characteristics}
+Under risk-managed sizing the strategy is near market-neutral: betas are within $\pm 0.1$ and correlations to SPX are low, consistent with the intent of extracting mispricing rather than market direction. Drawdowns are modest in 2022--2023 ($<4\%$) and the best risk-adjusted outcome is the 2023 Breeden--Litzenberger portfolio (Sharpe $0.67$). The GBM benchmark is competitive in the calmer 2022 tape but, lacking skew, underperforms BL in 2023.
+
+The 2024 results are dominated by data limitations: the option feed ends 11/19/2024 and SPX closed above the highest 2024 bucket, so held positions cannot be settled within the observed data and short exposure in lower buckets is marked at a loss. This inflates 2024 volatility and drawdown and should be read with caution.
+
+Mark-to-model versus mark-to-market correlations are low ($\rho \approx 0$--$0.2$), quantifying how much of the theoretically identified edge is lost to executability and liquidity --- a central practical limitation of trading these markets.
+
+\subsection{Cross-Market Corroboration via Iron-Condor Replication}
+As an independent, model-free check we replicate each Kalshi bucket $[L,U]$ with an SPX call condor whose payoff is one inside the bucket and zero outside (two tight call spreads). Comparing the condor's mid-price to the Kalshi price across all tradable bucket-days, the average replication error is only $\sim$2--3 cents (basis risk concentrated at the binary's knife-edge), while roughly \textbf{24\%} of quotes show a cross-market dislocation larger than five cents (Figure~\ref{fig:hedge}). This confirms, without any density model, that persistent tradable discrepancies exist between the two markets.
+
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.55\textwidth]{hedging_edge.png}
+  \caption{Distribution of Kalshi price minus SPX options replication across all bucket-days. Dotted lines mark $\pm 5$ cents.}\label{fig:hedge}
+\end{figure}
+
+\section{Conclusion}
+This study explores statistical arbitrage between Kalshi event contracts and SPX options by constructing a risk-neutral density from the liquid options market and comparing it to Kalshi's order-book prices. Under a realistic, risk-controlled implementation the option-implied signals produce small but generally positive, low-drawdown, near market-neutral returns, and an independent iron-condor replication corroborates that a meaningful fraction of Kalshi quotes are dislocated from the options market. The headline conclusion is qualified: the edge is real but modest once position sizing is constrained to keep risk bounded.
+
+The dominant practical obstacle is liquidity. Wide spreads and thin books make execution timing critical and cap scalability, and the low mark-to-model/mark-to-market correlation shows how much theoretical edge is lost in practice. Refinement of the RND (volatility surface, discounting conventions) and richer execution modeling --- fee-free limit orders, bid/ask-size-aware sizing --- are the clearest paths to improvement.
+
+The natural next step, left as future work, is a fully \emph{hedged} strategy that pairs each Kalshi position with its offsetting SPX iron condor and tracks both legs' mark-to-market daily, isolating the cross-market spread from directional risk. Extending beyond year-end SPX buckets to shorter horizons and other Kalshi products (Bitcoin, crude oil) is also promising. As Kalshi's liquidity and product breadth grow, the feasibility of these approaches should improve.
+
+\newpage
+\nocite{*}
+\bibliographystyle{plain}
+\bibliography{ref}
+\end{document}
