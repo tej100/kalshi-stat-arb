@@ -38,7 +38,7 @@ This study investigates the profitability of a statistical arbitrage strategy ap
 
 Probability mass functions are derived from SPX options using two approaches: a risk-neutral density (RND) extracted via the Breeden--Litzenberger method applied to a smoothed implied-volatility surface, and a Geometric Brownian Motion (GBM) benchmark using at-the-money implied volatility. Cleaned and interpolated option-chain data construct these distributions daily; they are compared to Kalshi's order-book-implied probabilities to build long--short portfolios of under- and over-priced contracts. To keep risk bounded on a small capital base, exposure is capped at a single lot per bucket (no pyramiding). Performance is benchmarked against the SPX index using Sharpe ratio, drawdowns, volatility, and alpha/beta.
 
-Backtesting from 2022 to 2024 shows that, under risk-managed position sizing, the option-implied signals produce small but generally positive, low-drawdown, near market-neutral returns, with the Breeden--Litzenberger method delivering the best risk-adjusted result in 2023 (Sharpe $0.67$). An independent, model-free check --- replicating each Kalshi bucket with an SPX iron condor --- finds that roughly one quarter of bucket quotes exhibit a cross-market dislocation larger than the replication cost, corroborating the density-based signal. Execution limitations, low liquidity, and missing end-of-year 2024 data constrain realized performance. Across all years the strategies show low correlation to SPX.
+Backtesting from 2022 to 2024 shows that, under risk-managed position sizing, the option-implied signals produce small but generally positive, low-drawdown, near market-neutral returns, with the Breeden--Litzenberger method delivering the best risk-adjusted result in 2023 (Sharpe $0.88$). An independent, model-free check --- replicating each Kalshi bucket with an SPX iron condor --- finds that roughly one quarter of bucket quotes exhibit a cross-market dislocation larger than the replication cost, corroborating the density-based signal. Execution limitations, low liquidity, and missing end-of-year 2024 data constrain realized performance. Across all years the strategies show low correlation to SPX.
 
 These findings suggest option-implied information can help detect pricing inefficiencies in prediction markets, though a realistic, risk-controlled implementation yields modest rather than dramatic returns. Ongoing improvements focus on hedged execution, expanded contract coverage, and fee-free limit-order modeling.
 
@@ -89,7 +89,7 @@ We construct benchmark estimates of the market-implied risk-neutral terminal dis
 \subsection{Breeden--Litzenberger Risk-Neutral Density}
 Under no-arbitrage, the risk-neutral density of the terminal underlying is recovered from the convexity of call prices in strike; dividing by the discount factor expresses it as a true (undiscounted) probability density:
 \[ f_Q(K) = \frac{1}{DF}\,\frac{\partial^2 C(K)}{\partial K^2} = e^{rT}\,\frac{\partial^2 C(K)}{\partial K^2}. \]
-We build the smoothed volatility curve from \emph{out-of-the-money} options (puts below the forward, calls above), which are less noisy than deep in-the-money quotes, and evaluate synthetic BSM call prices on a \emph{wide} strike grid (extended beyond the observed strikes using flat-volatility extrapolation) so the density has near-full support. The second derivative is taken by finite differences and clipped at zero to remove differentiation noise. Bucket probabilities are the trapezoidal integral $P([L,U]) = \int_L^U f_Q(K)\,dK$.
+We build the smoothed volatility curve from \emph{out-of-the-money} options (puts below the forward, calls above), which are less noisy than deep in-the-money quotes, using a least-squares spline with a modest number of knots (fewer than for pricing, since the second derivative amplifies any over-fitting of the smile). Synthetic BSM call prices are evaluated on a \emph{wide} strike grid (extended beyond the observed strikes with flat-volatility extrapolation) so the density has near-full support. Rather than differentiating naively --- which lets smile noise produce spurious multi-modality and negative densities --- we first impose the no-arbitrage shape on the price curve: the first derivative $\partial C/\partial K$ is constrained to lie in $[-DF, 0]$ and to be monotonically non-decreasing (an isotonic projection), so that $C(K)$ is convex and the recovered density is non-negative by construction, with no ad-hoc tail surgery. A light, mass-preserving smoothing removes the small kink introduced where flat extrapolation begins. Bucket probabilities are the trapezoidal integral $P([L,U]) = \int_L^U f_Q(K)\,dK$.
 
 Crucially, the density is \emph{not} renormalized to integrate to one, and bucket probabilities are \emph{not} rescaled to sum to 100\%: the residual mass is the genuine probability that SPX breaches every predefined Kalshi bucket. The undiscounted $P([L,U])$ is compared directly to the Kalshi contract price, since the exchange's APY on positions already compensates for time value. On a representative date the recovered density integrates to $\approx 1$ on the wide grid without any rescaling and is centered on the forward (Figure~\ref{fig:density}).
 
@@ -108,7 +108,7 @@ where $S_0$ is the dividend-adjusted \emph{spot}, $\sigma$ is the smoothed at-th
 A heuristic estimating bucket probabilities from call/put price slopes across strikes, distance-weighted between calls and puts, was also tested. In practice it was unstable --- strike granularity and missing strikes produced erratic, poorly normalized PMFs --- and it was discarded from active strategy development, consistent with prior expectations.
 
 \section{Strategy Considerations}
-\textbf{Portfolio and benchmarking.} Performance metrics use daily returns annualized with a 252-day factor \emph{for both the strategy and the SPX benchmark}. A constant 3\% annual risk-free rate is used for Sharpe/alpha. Portfolios are marked to market at the most recent order-book prices (long positions exit at the bid, shorts at the ask), and execution uses market orders with Kalshi's fee schedule.
+\textbf{Portfolio and benchmarking.} Performance metrics use daily returns annualized with a 252-day factor \emph{for both the strategy and the SPX benchmark}. A constant 3\% annual risk-free rate is used for Sharpe/alpha. Open positions are marked to the mid-price of a valid two-sided order book; a degenerate book (a zero bid against a 100-cent ask, which arises for buckets the index has left entirely) carries no tradable price and is marked to the last valid mid, then to the model. Execution uses market orders with Kalshi's fee schedule.
 
 \textbf{Position sizing and risk control.} A lot size of 8 contracts is used, selected by a power-of-two hypertuning exercise balancing fee efficiency against liquidity. To keep risk bounded on the small capital base, \emph{exposure is capped at a single lot per bucket}: a repeat same-direction signal on a bucket already held is skipped, and an opposite signal closes the position. This ``no-pyramiding'' rule is the key difference from an unconstrained accumulation strategy, which --- while capable of large end-of-year settlement payoffs --- drives portfolio value through zero and renders return-based metrics ill-defined.
 
@@ -136,31 +136,31 @@ Contracts expire at year-end, so each year is tested separately with held positi
 
 \begin{center}
 \begin{tabular}{c|c|c|c|c|c|c|c|c}
-    Year & Model & Ann Return & Ann Vol & Sharpe & Max DD & Alpha (daily) & Beta & Model $\rho$ \\
+    Year & Model & Ann Return & Ann Vol & Sharpe & Max DD & Total$^\dagger$ & Beta & Model $\rho$ \\
     \hline
     \multirow{2}{*}{2022}
-    & GBM & 5.90\% & 3.78\% & 0.77 & -3.30\% & 0.01\% & 0.00 & -0.03 \\
-    & BL  & 2.57\% & 5.02\% & -0.09 & -3.92\% & -0.00\% & -0.00 & 0.01 \\
+    & GBM & 6.03\% & 3.44\% & 0.88 & -2.03\% & 8.79\% & 0.00 & 0.03 \\
+    & BL  & 4.26\% & 3.94\% & 0.32 & -2.54\% & 6.05\% & -0.00 & 0.03 \\
     \hline
     \multirow{2}{*}{2023}
-    & GBM & 3.69\% & 2.69\% & 0.26 & -2.03\% & 0.00\% & 0.011 & 0.02 \\
-    & BL  & 5.01\% & 3.02\% & 0.67 & -1.79\% & 0.01\% & 0.018 & 0.04 \\
+    & GBM & 3.86\% & 2.23\% & 0.38 & -1.87\% & 5.59\% & 0.01 & 0.08 \\
+    & BL  & 5.89\% & 3.27\% & 0.88 & -2.03\% & 8.79\% & 0.03 & 0.13 \\
     \hline
     \multirow{2}{*}{2024}
-    & GBM & 4.41\% & 26.67\% & 0.05 & -24.06\% & 0.00\% & 0.035 & -0.02 \\
-    & BL  & 11.03\% & 37.20\% & 0.22 & -33.65\% & 0.03\% & 0.084 & 0.02 \\
+    & GBM & 0.90\% & 4.59\% & -0.46 & -3.27\% & 1.18\% & -0.02 & 0.05 \\
+    & BL  & 3.88\% & 5.66\% & 0.16 & -4.05\% & 5.55\% & 0.00 & 0.02 \\
 \end{tabular}
-\captionof{table}{Risk-managed performance (1 lot/bucket, both-side portfolio). 2024 omits the last two months of option data, and SPX finished above every 2024 bucket.}\label{tab:perf}
+\captionof{table}{Risk-managed performance (1 lot/bucket, both-side portfolio). Ann.\ Return/Vol/Sharpe/Max~DD are computed on the mark-to-market path; $^\dagger$Total is the end-to-end return \emph{including} the year-end settlement of held buckets. 2024 omits the last two months of option data, and SPX finished above every 2024 bucket.}\label{tab:perf}
 \end{center}
 
-Splitting into ``buy-only'' and ``sell-only'' sub-portfolios shows both sides contribute small positive returns in 2022--2023 (e.g., BL 2023: buy $+2.5\%$, sell $+2.9\%$), while 2024's buy-only leg is roughly flat and the sell-only leg drives the volatile result as SPX rallies out of the bucket range.
+Splitting into ``buy-only'' and ``sell-only'' sub-portfolios shows both sides contribute comparable small positive returns in every year (e.g., BL 2023: buy $+3.4\%$, sell $+3.2\%$ annualized; $+4.9\%$ each including settlement), indicating the edge is not a one-directional artifact.
 
 \subsection{Strategy Characteristics}
-Under risk-managed sizing the strategy is near market-neutral: betas are within $\pm 0.1$ and correlations to SPX are low, consistent with the intent of extracting mispricing rather than market direction. Drawdowns are modest in 2022--2023 ($<4\%$) and the best risk-adjusted outcome is the 2023 Breeden--Litzenberger portfolio (Sharpe $0.67$). The GBM benchmark is competitive in the calmer 2022 tape but, lacking skew, underperforms BL in 2023.
+Under risk-managed sizing the strategy is close to market-neutral: betas are within $\pm 0.03$ and correlations to SPX are low, consistent with the intent of extracting mispricing rather than market direction. Drawdowns are modest across all years ($<5\%$), and the best risk-adjusted outcome is the 2023 Breeden--Litzenberger portfolio (Sharpe $0.88$, $+8.8\%$ including settlement). The GBM benchmark is competitive in the calmer 2022 tape but, lacking skew, is matched or beaten by BL in 2023 and 2024.
 
-The 2024 results are dominated by data limitations: the option feed ends 11/19/2024 and SPX closed above the highest 2024 bucket, so held positions cannot be settled within the observed data and short exposure in lower buckets is marked at a loss. This inflates 2024 volatility and drawdown and should be read with caution.
+A note on marking is important here. Late in each year, once the index has moved past a bucket, that bucket's order book becomes one-sided --- a zero bid against a 100-cent ask --- because no participant will offer a contract that is already worthless. Treating that 100-cent ask as a liquidation price marks short positions at a spurious catastrophic loss; correcting the marking (as described under Strategy Considerations) removes what would otherwise appear as a large but entirely artificial 2024 drawdown. A residual caveat remains for 2024 specifically: the option feed ends 11/19/2024, and SPX closed above every predefined bucket, so the economically relevant contract that year was the open-ended tail bucket, which is outside the present dataset.
 
-Mark-to-model versus mark-to-market correlations are low ($\rho \approx 0$--$0.2$), quantifying how much of the theoretically identified edge is lost to executability and liquidity --- a central practical limitation of trading these markets.
+Mark-to-model versus mark-to-market correlations are low ($\rho \approx 0.02$--$0.13$), quantifying how much of the theoretically identified edge is lost to executability and liquidity --- a central practical limitation of trading these markets.
 
 \subsection{Cross-Market Corroboration via Iron-Condor Replication}
 As an independent, model-free check we replicate each Kalshi bucket $[L,U]$ with an SPX call condor whose payoff is one inside the bucket and zero outside (two tight call spreads). Comparing the condor's mid-price to the Kalshi price across all tradable bucket-days, the average replication error is only $\sim$2--3 cents (basis risk concentrated at the binary's knife-edge), while roughly \textbf{24\%} of quotes show a cross-market dislocation larger than five cents (Figure~\ref{fig:hedge}). This confirms, without any density model, that persistent tradable discrepancies exist between the two markets.

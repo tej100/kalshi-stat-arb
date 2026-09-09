@@ -65,12 +65,14 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 |---|---|---|---|
 | **Primary method** | Breeden–Litzenberger | `bl_density` | model-free RND from option convexity |
 | BL discount factor | f_Q(K) = e^{rT}·∂²C/∂K² (= 1/DF) | `bl_density` | recovers a **true** (undiscounted) probability density |
-| **Renormalization** | **NONE** | `bl_density` | density integrates to ≈1 naturally on the wide grid; residual = P(SPX breaches all buckets) |
+| No forced rescaling | bucket probs NOT scaled to sum to 1 | `build_pmf_table` | residual = P(SPX breaches all buckets) is kept as signal |
+| No-arbitrage enforcement | clip dC/dK to [−DF, 0] + **isotonic** (non-decreasing) | `bl_density`, `_isotonic_increasing` | guarantees C convex ⇒ density ≥ 0 and removes spurious modes without ad-hoc surgery; makes the density a proper law integrating to ≈1 on the wide grid |
+| `DENSITY_KNOTS` | **6** (vs 10 for pricing) | config | fewer knots ⇒ smile not over-fit; the 2nd derivative no longer amplifies noise into extra modes |
+| `DENSITY_SMOOTH_WINDOW` | **25** grid pts (~$30) | config | light mass-preserving smoothing; removes the flat-extrapolation boundary kink |
 | IV curve for BL | **OTM-combined** (puts below F, calls above) | `_iv_curve(otm=True)` | market standard; less noisy than deep-ITM |
 | `GRID_PAD_LOW / HIGH` | **2000 / 1000** | config | widen strike grid beyond observed strikes (flat-vol) so density has near-full support |
 | `GRID_POINTS` | **5000** | config | finite-difference resolution for ∂²C/∂K² |
 | Edge trim | drop 2 grid points each end | `bl_density` | np.gradient boundary error |
-| Negative clip | f = max(f, 0) | `bl_density` | remove differentiation-noise negatives |
 | GBM law | lognormal, S₀ = **spot** (adj), drift (r−½σ²)T | `gbm_pmf` | correct reading of paper's d₂ (which carries r-drift ⇒ spot, not forward) |
 | GBM σ | smoothed ATM IV (strike nearest F) | `_atm_vol` | single diffusion parameter |
 | `DISCOUNT_PROBABILITY` | **False** | config | compare undiscounted P(event) to Kalshi price; APY captures time value |
@@ -94,7 +96,7 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 | `KALSHI_FEE_RATE` | **0.035** | config | fee = ⌈0.035·C·p·(1−p)·100⌉/100 $ per lot (limit orders would be fee-free — future work) |
 | `KALSHI_APY` | **3.75%**, monthly | config, `backtest.run` | yield on cash **and** open positions |
 | Settlement | $1 if year-end close ∈ [L,U] | `backtest.run` | `SPX_YEAR_END_CLOSE` = {2022:3839.50, 2023:4769.83, 2024:5881.63} (actual S&P 500 cash closes) |
-| Marking | long→bid, short→ask; carry last if missing | `_mark` | conservative, executable exit prices |
+| Marking | **mid of a valid book**; empty book (bid ≤ `MARK_MIN_BID`=2c & ask ≥ `MARK_MAX_ASK`=98c) or missing → last valid mid → model | `_valid_book`, `backtest.run` | an empty book (bid 0 / ask 100 when SPX has left a bucket) is a phantom price, NOT a liquidation value; marking shorts there caused the 2024 −33% artifact |
 | Sub-strategies | both / buy-only / sell-only | `signals.generate(side=...)` | isolates directional performance |
 
 > **Design decision (locked):** the risk-managed (no-pyramiding) variant is the
@@ -113,6 +115,7 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 | Returns | simple daily pct_change, drop ±inf | `_daily_returns` | |
 | Sharpe | (annReturn − rf)/annVol | `summarize` | |
 | Max drawdown | on **strategy** PV (not benchmark) | `summarize` | old code computed DD on SPX by mistake |
+| `total_return` | (final incl. settlement)/start − 1 | `summarize` | end-to-end realized result INCLUDING year-end payoff (ann_return/Sharpe are pre-settlement path metrics) |
 | Alpha/Beta | OLS of daily excess strat vs excess SPX; alpha reported **daily** | `summarize` | |
 | Model ρ | corr of mark-to-market vs mark-to-model daily returns | `summarize` | executability of the ideal strategy |
 

@@ -30,12 +30,21 @@ CONTROL_VARIATE_LAMBDA = 0.20   # Price_adj = BSM + lambda*(Mid - BSM)
 GRID_PAD_LOW = 2000.0        # extend grid this far below min observed strike
 GRID_PAD_HIGH = 1000.0       # extend grid this far above max observed strike
 GRID_POINTS = 5000
+DENSITY_KNOTS = 6             # spline knots for the BL smile (fewer than pricing's
+                             # 10 -> avoids over-fitting noise that the 2nd
+                             # derivative would amplify into spurious modes)
+DENSITY_SMOOTH_WINDOW = 25    # grid points (~$30) for light mass-preserving
+                              # smoothing of the density; removes boundary kinks
 DISCOUNT_PROBABILITY = False  # compare undiscounted P(event) to price (APY covers TV)
 
 # ---- strategy / backtest ---------------------------------------------------
 LOT_SIZE = 8                 # contracts per trade (paper's tuned value)
 MAX_LOTS_PER_BUCKET = 1      # no pyramiding: cap open exposure per bucket to N lots
                              # (bounds risk on the small capital base; keeps PV > 0)
+# Marking: a book with bid <= MARK_MIN_BID and ask >= MARK_MAX_ASK is an empty
+# (degenerate) market whose quotes are phantom and must not mark a position.
+MARK_MIN_BID = 0.02
+MARK_MAX_ASK = 0.98
 START_CASH = 200.0           # initial cash ($)
 KALSHI_FEE_RATE = 0.035      # fee = ceil(rate * contracts * p * (1-p)) cents
 KALSHI_APY = 0.0375          # yield on cash + open positions, accrued monthly

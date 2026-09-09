@@ -46,11 +46,18 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None) -> dict:
     j = rs.index.intersection(rmod.index)
     model_rho = rs.loc[j].corr(rmod.loc[j]) if len(j) > 2 else np.nan
 
+    # Total return INCLUDING the year-end settlement payoff (the MTM path above
+    # is pre-settlement; ann_return/Sharpe are path metrics, total_return is the
+    # realized end-to-end result once held buckets settle).
+    start = pv.iloc[0]
+    final_value = m.attrs.get("final_value", pv.iloc[-1])
+    total_return = final_value / start - 1 if start else np.nan
+
     return dict(
         ann_return=ann_ret, ann_vol=ann_vol, sharpe=sharpe, max_dd=max_dd,
         alpha_daily=alpha, beta=beta, model_rho=model_rho,
         settlement=m.attrs.get("settlement", np.nan),
-        final_value=m.attrs.get("final_value", pv.iloc[-1]),
+        final_value=final_value, total_return=total_return,
         n_trades=n_trades,
     )
 
@@ -58,7 +65,7 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None) -> dict:
 def format_table(records: list[dict]) -> pd.DataFrame:
     """records: list of dicts with year, model, side + summarize() output."""
     df = pd.DataFrame(records)
-    pct = ["ann_return", "ann_vol", "max_dd", "alpha_daily"]
+    pct = ["ann_return", "ann_vol", "max_dd", "alpha_daily", "total_return"]
     for c in pct:
         df[c] = (df[c] * 100).round(2)
     df["sharpe"] = df["sharpe"].round(2)

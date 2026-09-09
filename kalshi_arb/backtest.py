@@ -35,13 +35,16 @@ def _apply_trade(positions, bucket, qty, price):
     return realized
 
 
-def _mark(qty, kb, ka):
-    """Exit price for a position: long sells at bid, short buys at ask."""
-    if qty > 0:
-        return kb
-    if qty < 0:
-        return ka
-    return 0.0
+def _valid_book(kb, ka):
+    """A quote is a real two-sided market only if both sides are present and the
+    book is not degenerate. An empty book quotes bid 0 / ask 100 (e.g. a bucket
+    SPX has left entirely): that ask is a phantom price, not a liquidation value,
+    so it must not be used to mark a position."""
+    if np.isnan(kb) or np.isnan(ka):
+        return False
+    if kb <= config.MARK_MIN_BID and ka >= config.MARK_MAX_ASK:
+        return False
+    return True
 
 
 def run(trades, pmf_table, kalshi, year, start_cash=None):
@@ -72,7 +75,9 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
                 realized_cum += _apply_trade(positions, t["bucket"], t["qty"], t["price"])
                 cash -= t["qty"] * t["price"] + t["fee"]
 
-        # mark to market and to model
+        # Mark to the MID of a valid two-sided book. Degenerate/empty books
+        # (bid 0 / ask 100) and missing quotes are not tradable prices, so we
+        # fall back to the last valid mid, then to the model probability.
         mtm_pos = 0.0
         model_pos = 0.0
         unreal = 0.0
@@ -80,14 +85,17 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
             q = pos["qty"]
             kb = bid.loc[d, b] / 100.0 if (d in bid.index and not pd.isna(bid.loc[d, b])) else np.nan
             ka = ask.loc[d, b] / 100.0 if (d in ask.index and not pd.isna(ask.loc[d, b])) else np.nan
-            m = _mark(q, kb, ka)
-            if np.isnan(m):
-                m = last_mark.get(b, 0.0)
-            last_mark[b] = m
+            mp = pmf.loc[d, b] if (d in pmf.index and not pd.isna(pmf.loc[d, b])) else np.nan
+            if _valid_book(kb, ka):
+                m = 0.5 * (kb + ka)
+                last_mark[b] = m
+            elif b in last_mark:
+                m = last_mark[b]
+            else:
+                m = mp if not np.isnan(mp) else 0.0
             mtm_pos += q * m
             unreal += q * m - pos["cost"]
-            mp = pmf.loc[d, b] if not pd.isna(pmf.loc[d, b]) else m
-            model_pos += q * mp
+            model_pos += q * (mp if not np.isnan(mp) else m)
 
         rows.append(dict(day=d, cash=cash, mtm_positions=mtm_pos,
                          model_positions=model_pos, unrealized=unreal,

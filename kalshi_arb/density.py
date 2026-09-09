@@ -20,7 +20,25 @@ from . import config, vol, pricing, io
 # --------------------------------------------------------------------------- #
 # Breeden-Litzenberger
 # --------------------------------------------------------------------------- #
-def _iv_curve(day_df, otm=True):
+def _isotonic_increasing(y):
+    """Least-squares projection onto non-decreasing sequences (pool-adjacent-
+    violators). Used to enforce that dC/dK is monotone (i.e. C is convex, so the
+    recovered density is non-negative) without ad-hoc tail surgery."""
+    y = np.asarray(y, float)
+    vals, cnts = [], []
+    for yi in y:
+        vals.append(yi); cnts.append(1)
+        while len(vals) > 1 and vals[-2] > vals[-1]:
+            nc = cnts[-1] + cnts[-2]
+            nv = (vals[-1] * cnts[-1] + vals[-2] * cnts[-2]) / nc
+            vals.pop(); cnts.pop(); vals[-1] = nv; cnts[-1] = nc
+    out = np.empty(len(y)); i = 0
+    for v, c in zip(vals, cnts):
+        out[i:i + c] = v; i += c
+    return out
+
+
+def _iv_curve(day_df, otm=True, n_knots=None):
     """Fit a smoothed IV(strike) spline for one quote date.
 
     otm=True builds the market-standard OTM curve (puts below forward, calls
@@ -37,7 +55,8 @@ def _iv_curve(day_df, otm=True):
     d = d.dropna(subset=["IV"]).sort_values("strike")
     if d["strike"].nunique() < 4:
         return None
-    spline = vol.fit_iv_spline(d["strike"], d["IV"])
+    n_knots = config.DENSITY_KNOTS if n_knots is None else n_knots
+    spline = vol.fit_iv_spline(d["strike"], d["IV"], n_knots=n_knots)
     if spline is None:
         return None
     return spline, d["strike"].min(), d["strike"].max()
@@ -59,11 +78,20 @@ def bl_density(day_df, otm=True):
 
     sigma = vol.eval_on_grid(spline, grid, k_min, k_max)   # flat wings
     calls = pricing.bsm_call(S, grid, T, r, sigma)
-    # f_Q(K) = e^{rT} d^2C/dK^2 ; trim 2 edge pts (gradient boundary error)
-    fpp = np.gradient(np.gradient(calls, grid), grid)
-    density = np.exp(r * T) * fpp
-    density = np.clip(density, 0.0, None)
-    grid, density = grid[2:-2], density[2:-2]
+    # Enforce no-arbitrage before differentiating: dC/dK must lie in [-DF, 0]
+    # and be non-decreasing (C convex), which makes the density non-negative and
+    # removes spurious multi-modality from smile noise -- no ad-hoc surgery.
+    DF = np.exp(-r * T)
+    fp = np.clip(np.gradient(calls, grid), -DF, 0.0)
+    fp = _isotonic_increasing(fp)
+    fpp = np.gradient(fp, grid)
+    density = np.clip(np.exp(r * T) * fpp, 0.0, None)
+    # light, mass-preserving smoothing to remove the flat-extrapolation kink at
+    # the observed-strike boundary (a thin spike in the raw 2nd derivative)
+    w = config.DENSITY_SMOOTH_WINDOW
+    if w and w > 1:
+        density = np.convolve(density, np.ones(w) / w, mode="same")
+    grid, density = grid[2:-2], density[2:-2]   # trim gradient boundary error
     return grid, density
 
 
