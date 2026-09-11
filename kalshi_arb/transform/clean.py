@@ -77,8 +77,8 @@ def _restrict_to_current_year_expiry(df: pd.DataFrame, verbose: bool) -> pd.Data
     priced off a ~365-day-to-maturity chain instead of a days-to-maturity one
     -- exactly the window where the density should be sharpening the most.
     Dropped dates are left with no same-year chain at all; build_pmf_table
-    treats that as unpriceable (see PMF_MAX_STALE_DAYS) rather than silently
-    reusing a stale prior chain.
+    requires an exact same-calendar-day match, so those dates are correctly
+    treated as unpriceable rather than silently reusing a stale prior chain.
     """
     same_year = df["exp"].dt.year == df["quote"].dt.year
     dropped = len(df) - int(same_year.sum())

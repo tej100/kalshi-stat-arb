@@ -76,26 +76,31 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 | GBM law | lognormal, S₀ = **spot** (adj), drift (r−½σ²)T | `gbm_pmf` | correct reading of paper's d₂ (which carries r-drift ⇒ spot, not forward) |
 | GBM σ | smoothed ATM IV (strike nearest F) | `_atm_vol` | single diffusion parameter |
 | `DISCOUNT_PROBABILITY` | **False** | config | compare undiscounted P(event) to Kalshi price; APY captures time value |
-| **Calendar matching** | **strict same-day** (`PMF_MAX_STALE_DAYS=0`): a NEW position requires a genuine same-calendar-day quote from BOTH the option chain and Kalshi | `build_pmf_table` | **design decision, not a data-gap workaround** — see below |
+| **Calendar matching** | **strict same-day, hard rule (no parameter)**: a NEW position requires a genuine same-calendar-day quote from BOTH the option chain and Kalshi | `build_pmf_table` | **design decision, not a data-gap workaround** — see below |
 | Same-Kalshi-year expiry | option rows filtered to `exp.year == quote.year` | `transform/clean.py` | drops the late-Dec expiry-rollover window where the raw feed only has next year's ~365-day contract |
 
-> **Why strict same-day (no fill of any kind):** the strategy's thesis is that
-> the options market is the live, informed reference and Kalshi sometimes
-> lags it. That only holds while options are actually trading. On a day
-> options are closed (weekends, holidays) — or, before the clean-stage expiry
-> filter above, the late-December window where only next year's contract was
-> quoted — the "model" side is frozen while Kalshi keeps moving. A divergence
-> on such a day no longer tells you Kalshi is wrong; it could equally mean
-> the model is stale and Kalshi is right. Trading it would rest on an
-> unstated, different mechanism (a bet that Kalshi's own after-hours move
-> reverts), not the options-information edge the paper claims. So new
-> signals only fire on days both markets are genuinely live; existing
-> positions still mark-to-market and settle normally every day regardless.
-> Evaluated but rejected: (a) a *bounded* stale-fill (e.g. 4 calendar days,
-> matching the longest US market holiday weekend) — defensible in principle,
-> but still trades on a frozen model view, so rejected for the same reason;
-> (b) unbounded stale-fill through the December gap — empirically the worst
-> option (frozen T never sharpens toward expiry) and rejected outright.
+> **Why strict same-day, and why there is no staleness-tolerance parameter at
+> all:** the strategy's thesis is that the options market is the live,
+> informed reference and Kalshi sometimes lags it. That only holds while
+> options are actually trading. On a day they aren't (weekends, holidays, or
+> — before the clean-stage expiry filter above — the late-December window
+> where only next year's contract was quoted), the "model" side is frozen
+> while Kalshi keeps moving. A divergence on such a day no longer tells you
+> Kalshi is wrong; it could equally mean the model is stale and Kalshi is
+> right. Trading it would rest on an unstated, different mechanism (a bet
+> that Kalshi's own after-hours move reverts), not the options-information
+> edge the paper claims. Crucially, **this problem is categorical, not a
+> matter of degree**: it is already fully present after a single day of
+> staleness, so there is no "safe" bound to calibrate — a 4-day tolerance
+> (matching the longest US holiday weekend) is not a smaller version of the
+> problem, it is the same problem for four days instead of one. For that
+> reason `build_pmf_table` takes no staleness parameter at all (removed after
+> initially being added as a bounded compromise — see CLEANUP_LOG.md for the
+> before/after). New signals only fire on days both markets are genuinely
+> live; existing positions still mark-to-market and settle normally every day
+> regardless. Also evaluated and rejected: unbounded stale-fill through the
+> December gap specifically — empirically the worst option, since the frozen
+> `T` never sharpens toward expiry.
 >
 > ⚠️ **Paper reconciliation:** (a) paper says BL uses "call options" — we use
 > OTM-combined; (b) paper says GBM S₀ = forward — we use spot (formula-consistent);
