@@ -66,11 +66,36 @@ def _backfill_iv(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _restrict_to_current_year_expiry(df: pd.DataFrame, verbose: bool) -> pd.DataFrame:
+    """Keep only quotes whose expiry falls in the same calendar year as the
+    quote date, matching the paper's design ("only SPXW options whose
+    expiration dates aligned with Kalshi's event horizons were retained").
+
+    The raw feed rolls to next year's contract in the final ~2 weeks of
+    December (the expiring contract disappears from the feed before it
+    settles), so without this filter those late-December quote dates would be
+    priced off a ~365-day-to-maturity chain instead of a days-to-maturity one
+    -- exactly the window where the density should be sharpening the most.
+    Dropped dates are left with no same-year chain at all; build_pmf_table
+    treats that as unpriceable (see PMF_MAX_STALE_DAYS) rather than silently
+    reusing a stale prior chain.
+    """
+    same_year = df["exp"].dt.year == df["quote"].dt.year
+    dropped = len(df) - int(same_year.sum())
+    if verbose and dropped:
+        bad_dates = df.loc[~same_year, "quote"]
+        print(f"[clean] dropped {dropped} rows on {bad_dates.nunique()} quote date(s) "
+              f"whose only available expiry rolled to next year "
+              f"(e.g. {bad_dates.min().date()}..{bad_dates.max().date()})")
+    return df[same_year]
+
+
 def clean_chain(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     """Full cleaning pipeline. Returns the cleaned, priced-input chain."""
     n0 = len(df)
     # drop rows with no usable pricing info at all
     df = df.dropna(subset=["Bid", "Ask", "Implied Volatility"], how="all")
+    df = _restrict_to_current_year_expiry(df, verbose)
     df = _transform(df)
     df = _mid_price(df)
 

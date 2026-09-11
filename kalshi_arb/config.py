@@ -36,6 +36,23 @@ DENSITY_KNOTS = 6             # spline knots for the BL smile (fewer than pricin
 DENSITY_SMOOTH_WINDOW = 25    # grid points (~$30) for light mass-preserving
                               # smoothing of the density; removes boundary kinks
 DISCOUNT_PROBABILITY = False  # compare undiscounted P(event) to price (APY covers TV)
+# Maximum calendar-day gap for which a prior day's option-derived PMF may be
+# reused for a NEW trade signal. Default 0 = strict same-day matching: a new
+# position is only opened on a date where the SPXW option chain and the
+# Kalshi order book both have a genuine live quote that day.
+#
+# Design rationale: the strategy's thesis is that the options market is the
+# informed, current reference and Kalshi sometimes lags it. That only holds
+# while both markets are live. On a day options don't trade (weekends,
+# holidays) or don't have the correct-maturity contract (the late-December
+# expiry-rollover gap in transform/clean.py), the "model" side is frozen while
+# Kalshi keeps moving -- so a divergence no longer tells you Kalshi is wrong,
+# it could equally mean the model is stale and Kalshi is right. Trading it
+# would rest on a different, unstated mechanism (a bet that Kalshi's own
+# after-hours move reverts), not the options-information edge the paper
+# claims. Existing positions still mark-to-market and settle normally on
+# these days -- only NEW signal generation is restricted.
+PMF_MAX_STALE_DAYS = 0
 
 # ---- strategy / backtest ---------------------------------------------------
 LOT_SIZE = 8                 # contracts per trade (paper's tuned value)

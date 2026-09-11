@@ -187,13 +187,26 @@ def spread_pmf(day_df, buckets):
 _METHODS = {"bl": bl_pmf, "gbm": gbm_pmf, "spread": spread_pmf}
 
 
-def build_pmf_table(chain, kalshi, method="bl", ffill=True, **kw):
+def build_pmf_table(chain, kalshi, method="bl", ffill=True,
+                    max_stale_days=None, **kw):
     """{year: DataFrame[date x bucket]} of model probabilities.
 
-    Dates follow the Kalshi calendar; option data is forward/back-filled to
-    non-trading days. NO renormalization to 1 (see module docstring).
+    Dates follow the Kalshi calendar; a date is only priced (non-NaN) if a
+    same-year-expiry SPXW option chain exists within `max_stale_days`
+    calendar days of it. The default, `config.PMF_MAX_STALE_DAYS = 0`, is
+    strict same-day matching -- the options market and Kalshi must BOTH be
+    live that calendar day. This is a deliberate design choice, not a data
+    gap workaround (see the rationale next to PMF_MAX_STALE_DAYS in
+    config.py): the strategy's edge comes from the options market being the
+    live, informed reference, which only holds while it is actually trading.
+    Weekends/holidays (options closed) and the late-December expiry-rollover
+    gap (see transform/clean.py) both correctly return NaN under the default.
+    Downstream, signals.generate() skips any date with a NaN PMF, so no new
+    position is opened -- existing positions still mark-to-market and settle
+    normally. NO renormalization to 1 (see module docstring).
     """
     fn = _METHODS[method]
+    max_stale = config.PMF_MAX_STALE_DAYS if max_stale_days is None else max_stale_days
     out = {}
     for year in kalshi:
         buckets = list(kalshi[year]["price"].columns)
@@ -203,15 +216,26 @@ def build_pmf_table(chain, kalshi, method="bl", ffill=True, **kw):
         by_day = {d: g for d, g in yr_chain.groupby("quote", observed=True)}
         avail = pd.Series(sorted(by_day)).values
         for date in template.index:
-            # nearest available option quote on/before this calendar date
+            # nearest available same-year-expiry quote on/before this date,
+            # but only if within the staleness bound
             prior = avail[avail <= np.datetime64(date)]
             if len(prior) == 0:
                 continue
-            day_df = by_day[pd.Timestamp(prior[-1])]
+            last = pd.Timestamp(prior[-1])
+            if (date - last).days > max_stale:
+                continue
+            day_df = by_day[last]
             probs = fn(day_df, buckets, **kw) if method == "bl" else fn(day_df, buckets)
             if probs is not None:
                 template.loc[date] = pd.Series(probs)
-        if ffill:
-            template = template.ffill().bfill()
+        if ffill and max_stale > 0:
+            # The per-date loop above already forward-fills within the
+            # staleness bound, so only a bounded BACK-fill is applied here --
+            # solely to cover the first few days of January before any same-
+            # year-expiry quote exists yet. (A trailing ffill here would
+            # compound with the loop's own bound and double the effective
+            # staleness tolerance -- do not add one back.) max_stale=0 means
+            # strict same-day matching: no fill of any kind.
+            template = template.bfill(limit=max_stale)
         out[year] = template
     return out
