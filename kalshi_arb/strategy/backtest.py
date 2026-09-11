@@ -51,7 +51,14 @@ def _valid_book(kb, ka):
 def run(trades, pmf_table, kalshi, year, start_cash=None):
     """Run the backtest for one year. Returns a DataFrame indexed by date with
     portfolio_value (mark-to-market, incl. APY) and model_value (mark-to-model),
-    plus realized/unrealized/cash columns; the final row includes settlement."""
+    plus realized/unrealized/cash columns; the final row includes settlement.
+
+    `trades` is the raw SIGNAL log from signals.generate() -- it re-fires every
+    day a mispricing persists, not just on the day a new order would actually
+    be placed. Most of those rows are suppressed by the no-pyramiding cap below
+    (already-at-capacity same-direction signals are skipped); the ones that
+    actually change a position are recorded in `.attrs["executed_trades"]` on
+    the returned frame, which is the correct trade count to report."""
     start_cash = config.START_CASH if start_cash is None else start_cash
     bid, ask = kalshi[year]["bid"], kalshi[year]["ask"]
     pmf = pmf_table[year]
@@ -63,6 +70,7 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
     last_mark = {}
     realized_cum = 0.0
     rows = []
+    executed = []
 
     for d in dates:
         # execute trades (no pyramiding: skip a same-direction fill once the
@@ -75,6 +83,7 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
                     continue
                 realized_cum += _apply_trade(positions, t["bucket"], t["qty"], t["price"])
                 cash -= t["qty"] * t["price"] + t["fee"]
+                executed.append(t)
 
         # Mark to the MID of a valid two-sided book. Degenerate/empty books
         # (bid 0 / ask 100) and missing quotes are not tradable prices, so we
@@ -125,4 +134,8 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
     m.attrs["settlement"] = settle
     m.attrs["final_value"] = m["portfolio_value"].iloc[-1] - m["mtm_positions"].iloc[-1] + settle
     m.attrs["year_end_close"] = close
+    m.attrs["n_signals"] = len(trades)                 # raw signal-log rows (re-fires daily)
+    m.attrs["executed_trades"] = pd.DataFrame(executed) if executed else pd.DataFrame(
+        columns=["day", "bucket", "qty", "price", "fee", "model_p"])
+    m.attrs["n_executed"] = len(executed)               # actual fills after the pyramiding cap
     return m

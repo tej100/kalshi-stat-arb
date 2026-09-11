@@ -28,8 +28,12 @@ def full(chain=None, kalshi=None, methods=("bl", "gbm"),
                 tr = signals.generate(pmf[mth], kalshi, year, side=side)
                 m = backtest.run(tr, pmf[mth], kalshi, year)
                 results[(year, mth, side)] = m
+                # n_trades = actual executed fills (post pyramiding-cap), NOT the
+                # raw signal-log length in `tr`, which re-fires daily while a
+                # mispricing persists -- see backtest.run's docstring.
                 rec = dict(year=year, model=mth.upper(), side=side,
-                           **metrics.summarize(m, chain, year, n_trades=len(tr)))
+                           **metrics.summarize(m, chain, year, n_trades=m.attrs["n_executed"]))
+                rec["n_signals"] = m.attrs["n_signals"]
                 records.append(rec)
     table = metrics.format_table(records)
     return table, results, pmf

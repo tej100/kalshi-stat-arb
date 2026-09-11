@@ -126,10 +126,23 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 | Settlement | $1 if year-end close ∈ [L,U] | `backtest.run` | `SPX_YEAR_END_CLOSE` = {2022:3839.50, 2023:4769.83, 2024:5881.63} (actual S&P 500 cash closes) |
 | Marking | **mid of a valid book**; empty book (bid ≤ `MARK_MIN_BID`=2c & ask ≥ `MARK_MAX_ASK`=98c) or missing → last valid mid → model | `_valid_book`, `backtest.run` | an empty book (bid 0 / ask 100 when SPX has left a bucket) is a phantom price, NOT a liquidation value; marking shorts there caused the 2024 −33% artifact |
 | Sub-strategies | both / buy-only / sell-only | `signals.generate(side=...)` | isolates directional performance |
+| **Exit rule / holding period** | **none fixed** — hold until the OPPOSITE entry test fires on that bucket, or year-end settlement | `signals.generate` (re-evaluated daily), `backtest.run` | there is no take-profit, stop-loss, or time-based exit; observed holding periods in the actual backtest range from 1 day to 6+ months (same bucket, 2023) |
+| **`n_trades` reporting** | = **executed fills** (`backtest.run().attrs["n_executed"]`), NOT the raw signal-log length | `run.full`, `backtest.run` | `signals.generate()` re-fires a signal every day a mispricing persists even while already at the 1-lot cap; those redundant rows are correctly suppressed by execution but were being mis-reported as trade count (found while tracing a real position: 137 raw signals vs 8 actual fills for one bucket). Raw count still available as `n_signals`. |
 
 > **Design decision (locked):** the risk-managed (no-pyramiding) variant is the
 > published strategy. The unbounded-accumulation variant produces the old
 > dramatic-but-ill-defined numbers (PV crosses 0) and is NOT used.
+>
+> **On the exit rule:** because there is no convergence-target exit, a position
+> is not guaranteed to close once the spread reaches zero — it can ride past
+> zero into an overshoot (locking a gain), or reverse against the position
+> before ever converging (a real loss; observed in the actual backtest — see
+> CLEANUP_LOG.md round 6). This means the "97–99% convergence P&L" finding in
+> `DUAL_TRADING_ANALYSIS.md` is a mix of realized gains/losses from these
+> reversal-triggered exits plus unrealized mark-to-market on positions still
+> open on any given date — both correctly flow into `portfolio_value`, but they
+> are not the same thing and should be described precisely, not conflated, in
+> the paper.
 
 ---
 
