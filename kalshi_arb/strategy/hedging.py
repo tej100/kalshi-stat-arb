@@ -16,7 +16,8 @@ locks the cross-market mispricing up to that basis risk.
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from . import io
+from .. import config
+from ..transform import buckets
 
 
 def _bracket(strikes, target):
@@ -103,7 +104,6 @@ def analyze_year(chain, kalshi, year, verbose=True):
     by_day = {d: g for d, g in chain[chain["quote"].dt.year == year].groupby("quote")}
     avail = np.array(sorted(by_day))
     close = None
-    from . import config
     close = config.SPX_YEAR_END_CLOSE[year]
     rows = []
     for date in price.index:
@@ -115,7 +115,7 @@ def analyze_year(chain, kalshi, year, verbose=True):
             kp = price.loc[date, bucket]
             if pd.isna(kp):
                 continue
-            L, U = io.bucket_bounds(bucket)
+            L, U = buckets.bucket_bounds(bucket)
             legs = replicate_bucket(day_df, L, U)
             if legs is None:
                 continue

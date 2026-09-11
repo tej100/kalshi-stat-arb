@@ -1,9 +1,16 @@
-"""kalshi_arb: options-implied probabilities vs Kalshi event-contract mispricing.
+"""kalshi_arb - options-implied probabilities vs Kalshi event-contract mispricing.
 
-Pipeline (see paper "Event Contract Mispricing via Options-Implied Probabilities"):
-    io -> cleaning -> vol -> pricing -> density -> signals -> backtest -> metrics
-    hedging  (SPX iron-condor replication of Kalshi buckets)
+Three-stage ETL pipeline (see the sub-packages):
+
+    extract/    pull raw data from each source (refinitiv option chain, kalshi book)
+    transform/  raw -> discrete bucket PMFs on the shared grid (both sources)
+    strategy/   PMFs -> signals -> backtest -> metrics (+ hedging)
+
+Orchestration:
+    pipeline.build_chain()  extract + transform the option chain
+    run.full()              end-to-end sweep (BL/GBM x years x sides)
 """
-from . import config
+from . import config, pipeline, run
+from . import extract, transform, strategy
 
-__all__ = ["config"]
+__all__ = ["config", "pipeline", "run", "extract", "transform", "strategy"]

@@ -1,18 +1,20 @@
-"""End-to-end orchestration of the reproducible pipeline.
+"""End-to-end orchestration across the three stages.
 
-    build_chain() : io.load_raw_chain -> cleaning -> vol -> pricing
+    build_chain() : extract.refinitiv -> transform.clean -> smoothing -> pricing
+                    (the cleaned, priced option chain, single source of truth)
 """
 from __future__ import annotations
-import pandas as pd
-from . import io, cleaning, vol, pricing, config
+from . import config
+from .extract import refinitiv
+from .transform import clean, smoothing, pricing
 
 
-def build_chain(path=None, save=False, verbose=True) -> pd.DataFrame:
-    """Load raw chain, clean, smooth vols, and price. Single source of truth
+def build_chain(path=None, save=False, verbose=True):
+    """Load the raw chain, clean, smooth vols, and price. Single source of truth
     for the cleaned+priced option chain used downstream."""
-    df = io.load_raw_chain(path)
-    df = cleaning.clean_chain(df, verbose=verbose)
-    df = vol.smooth_chain(df)
+    df = refinitiv.load_raw_chain(path)
+    df = clean.clean_chain(df, verbose=verbose)
+    df = smoothing.smooth_chain(df)
     df = pricing.price_chain(df)
     if verbose:
         pe = (df["BSM"] - df["Mid"]).dropna()

@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
-from . import config
+from .. import config
 
 
 def _d1_d2(S, K, T, r, sigma):

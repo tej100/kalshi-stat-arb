@@ -1,11 +1,13 @@
-"""Convenience runner: build chain -> PMFs -> signals -> backtest -> metrics.
+"""Convenience runner: extract -> transform (PMFs) -> strategy sweep.
 
     from kalshi_arb import run
-    table, results = run.full()   # results[(year, model, side)] -> backtest df
+    table, results, pmf = run.full()   # results[(year, model, side)] -> backtest df
 """
 from __future__ import annotations
-import pandas as pd
-from . import io, pipeline, density, signals, backtest, metrics, config
+from . import config, pipeline
+from .extract import kalshi as kalshi_src
+from .transform import density
+from .strategy import signals, backtest, metrics
 
 
 def full(chain=None, kalshi=None, methods=("bl", "gbm"),
@@ -13,10 +15,12 @@ def full(chain=None, kalshi=None, methods=("bl", "gbm"),
     if chain is None:
         chain = pipeline.build_chain(verbose=verbose)
     if kalshi is None:
-        kalshi = io.load_kalshi()
+        kalshi = kalshi_src.load_kalshi()
 
+    # transform: each density method -> {year: date x bucket model PMF}
     pmf = {mth: density.build_pmf_table(chain, kalshi, method=mth) for mth in methods}
 
+    # strategy: signals -> backtest -> metrics, per model/year/side
     records, results = [], {}
     for mth in methods:
         for year in config.YEARS:

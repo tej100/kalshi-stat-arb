@@ -10,7 +10,7 @@ Nothing downstream hard-codes an economic constant.
 
 ---
 
-## 1. Data cleaning (`cleaning.py`)
+## 1. Data cleaning (`transform/clean.py`)
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
@@ -35,12 +35,12 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 
 ---
 
-## 2. Volatility smoothing (`vol.py`)
+## 2. Volatility smoothing (`transform/smoothing.py`)
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
 | Smoother | LSQ univariate spline | `fit_iv_spline` | paper's chosen method (LOWESS/cubic/poly/PCHIP/SABR de-scoped) |
-| `DEFAULT_KNOTS` | **10** interior | `vol.py` | balances smoothness vs local flexibility |
+| `DEFAULT_KNOTS` | **10** interior | `smoothing.py` | balances smoothness vs local flexibility (pricing); density uses `DENSITY_KNOTS`=6 |
 | Knot placement | interior **quantiles** of strikes | `fit_iv_spline` | guarantees Schoenberg–Whitney (uniform knots failed on clustered strikes) |
 | Min points | ≥ 4 unique strikes | `fit_iv_spline` | below this, no spline fit |
 | Extrapolation | **flat** outside observed strike range | `eval_on_grid` | avoids spurious wings / negative vols when widening the density grid |
@@ -50,7 +50,7 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 
 ---
 
-## 3. Pricing (`pricing.py`)
+## 3. Pricing (`transform/pricing.py`)
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
@@ -59,7 +59,7 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 
 ---
 
-## 4. Density formation (`density.py`)
+## 4. Density formation (`transform/density.py`)
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
@@ -85,7 +85,7 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 
 ---
 
-## 5. Signals & strategy (`signals.py`, `backtest.py`)
+## 5. Signals & strategy (`strategy/signals.py`, `strategy/backtest.py`)
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
@@ -105,7 +105,7 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 
 ---
 
-## 6. Performance metrics (`metrics.py`)
+## 6. Performance metrics (`strategy/metrics.py`)
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|

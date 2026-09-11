@@ -14,7 +14,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
-from . import config, vol, pricing, io
+from .. import config
+from . import smoothing, pricing
+from . import buckets as bkt
 
 
 # --------------------------------------------------------------------------- #
@@ -56,7 +58,7 @@ def _iv_curve(day_df, otm=True, n_knots=None):
     if d["strike"].nunique() < 4:
         return None
     n_knots = config.DENSITY_KNOTS if n_knots is None else n_knots
-    spline = vol.fit_iv_spline(d["strike"], d["IV"], n_knots=n_knots)
+    spline = smoothing.fit_iv_spline(d["strike"], d["IV"], n_knots=n_knots)
     if spline is None:
         return None
     return spline, d["strike"].min(), d["strike"].max()
@@ -76,7 +78,7 @@ def bl_density(day_df, otm=True):
     hi = k_max + config.GRID_PAD_HIGH
     grid = np.linspace(lo, hi, config.GRID_POINTS)
 
-    sigma = vol.eval_on_grid(spline, grid, k_min, k_max)   # flat wings
+    sigma = smoothing.eval_on_grid(spline, grid, k_min, k_max)   # flat wings
     calls = pricing.bsm_call(S, grid, T, r, sigma)
     # Enforce no-arbitrage before differentiating: dC/dK must lie in [-DF, 0]
     # and be non-decreasing (C convex), which makes the density non-negative and
@@ -109,7 +111,7 @@ def bl_pmf(day_df, buckets, otm=True):
     if res is None:
         return None
     grid, density = res
-    return {b: bucket_prob(grid, density, *io.bucket_bounds(b)) for b in buckets}
+    return {b: bucket_prob(grid, density, *bkt.bucket_bounds(b)) for b in buckets}
 
 
 # --------------------------------------------------------------------------- #
@@ -145,7 +147,7 @@ def gbm_pmf(day_df, buckets):
 
     out = {}
     for b in buckets:
-        L, U = io.bucket_bounds(b)
+        L, U = bkt.bucket_bounds(b)
         out[b] = max(cdf(U) - cdf(L), 0.0)
     return out
 
@@ -166,11 +168,11 @@ def spread_pmf(day_df, buckets):
         return float(np.interp(K, series.index, series.values,
                                left=series.iloc[0], right=series.iloc[-1]))
 
-    mids = np.array([np.mean(io.bucket_bounds(b)) for b in buckets])
+    mids = np.array([np.mean(bkt.bucket_bounds(b)) for b in buckets])
     d_max = max(abs(mids.min() - F), abs(mids.max() - F)) or 1.0
     out = {}
     for b in buckets:
-        L, U = io.bucket_bounds(b)
+        L, U = bkt.bucket_bounds(b)
         p_call = (interp(calls, L) - interp(calls, U)) / (U - L)
         p_put = (interp(puts, U) - interp(puts, L)) / (U - L)
         M = 0.5 * (L + U)

@@ -7,7 +7,7 @@ schedule; see config. `side` filters buy-only / sell-only sub-strategies.
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from . import config
+from .. import config
 
 
 def kalshi_fee(price, contracts):

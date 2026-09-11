@@ -6,7 +6,8 @@ notebook are documented inline (marked NOTE) and in CLEANUP_LOG.md.
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from . import config, pricing
+from .. import config
+from . import pricing
 
 
 def _transform(df: pd.DataFrame) -> pd.DataFrame:

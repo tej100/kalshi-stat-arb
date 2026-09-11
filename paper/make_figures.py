@@ -11,7 +11,10 @@ import numpy as np, pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from kalshi_arb import pipeline, io, vol, density, run, metrics, hedging, config
+from kalshi_arb import pipeline, run, config
+from kalshi_arb.extract import kalshi as kalshi_src
+from kalshi_arb.transform import density, buckets as bkt
+from kalshi_arb.strategy import metrics, hedging
 
 FIG = os.path.join(os.path.dirname(__file__), "figures")
 os.makedirs(FIG, exist_ok=True)
@@ -25,7 +28,7 @@ def save(name):
 
 def main():
     chain = pipeline.build_chain(save=False)
-    kalshi = io.load_kalshi()
+    kalshi = kalshi_src.load_kalshi()
 
     # 1. moneyness distribution
     plt.figure(figsize=(5, 3.4))
@@ -65,7 +68,7 @@ def main():
     ax[1].bar(x - w, kp.values, w, label="Kalshi", color=GREY)
     ax[1].bar(x, [bl[b] for b in buckets], w, label="BL", color=NAVY)
     ax[1].bar(x + w, [gb[b] for b in buckets], w, label="GBM", color=ORANGE)
-    mids = [int(np.mean(io.bucket_bounds(b))) for b in buckets]
+    mids = [int(np.mean(bkt.bucket_bounds(b))) for b in buckets]
     ax[1].set_xticks(x); ax[1].set_xticklabels(mids, rotation=60, fontsize=7)
     ax[1].set_xlabel("bucket midpoint"); ax[1].set_ylabel("probability")
     ax[1].legend(frameon=False); ax[1].set_title("Model vs Kalshi bucket probabilities")

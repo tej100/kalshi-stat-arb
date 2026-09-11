@@ -11,7 +11,8 @@ correlation can quantify how executable the ideal strategy is.
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from . import config, io
+from .. import config
+from ..transform import buckets
 
 
 def _apply_trade(positions, bucket, qty, price):
@@ -119,7 +120,7 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
     close = config.SPX_YEAR_END_CLOSE[year]
     settle = 0.0
     for b, pos in positions.items():
-        lo, hi = io.bucket_bounds(b)
+        lo, hi = buckets.bucket_bounds(b)
         settle += pos["qty"] * (1.0 if lo <= close <= hi else 0.0)
     m.attrs["settlement"] = settle
     m.attrs["final_value"] = m["portfolio_value"].iloc[-1] - m["mtm_positions"].iloc[-1] + settle
