@@ -81,7 +81,7 @@ Several alternatives were evaluated before selecting LSQ splines --- LOWESS, cub
 Options are priced with a spot-based Black--Scholes--Merton model on the dividend-adjusted spot $S$ with rate $r$ and volatility LSQ\_Vol:
 \[ C = S\,N(d_1) - K e^{-rT} N(d_2), \quad P = K e^{-rT} N(-d_2) - S\,N(-d_1),\quad
 d_1 = \frac{\ln(S/K) + (r + \sigma^2/2)T}{\sigma \sqrt{T}},\; d_2 = d_1 - \sigma\sqrt{T}. \]
-To reduce bias from BSM's assumptions, a control-variate adjustment nudges the model toward the market mid, $\text{Price}_{adj} = \text{Price}_{BSM} + \lambda(\text{Mid} - \text{Price}_{BSM})$, with a fixed $\lambda = 0.2$. Against observed mids, the adjusted model achieves a mean absolute error of \$4.52 and RMSE of \$9.36 (Figure~\ref{fig:modelmkt}).
+To reduce bias from BSM's assumptions, a control-variate adjustment nudges the model toward the market mid, $\text{Price}_{adj} = \text{Price}_{BSM} + \lambda(\text{Mid} - \text{Price}_{BSM})$, with a fixed $\lambda = 0.2$. Against observed mids, the adjusted model achieves a mean absolute error of \$4.38 and RMSE of \$7.54 (Figure~\ref{fig:modelmkt}).
 
 \section{Density Formation}
 We construct benchmark estimates of the market-implied risk-neutral terminal distribution of SPX and discretize them to Kalshi's buckets. Two methods are carried forward --- the model-free Breeden--Litzenberger result and a GBM benchmark --- and a third heuristic (option price spreads) is described but discarded.

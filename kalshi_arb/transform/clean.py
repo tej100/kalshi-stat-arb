@@ -53,6 +53,37 @@ def _mid_price(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(index=drop_idx)
 
 
+def _drop_arbitrage_violations(df: pd.DataFrame, verbose: bool) -> pd.DataFrame:
+    """Drop quotes whose mid violates the European no-arbitrage price bounds.
+
+    Every option price = intrinsic value + time value, and time value can never
+    be negative (optionality only helps the holder). For a European option on
+    the dividend-adjusted spot S with discount factor DF = e^{-rT}:
+
+        call:  max(S - K*DF, 0)  <=  mid  <=  S
+        put:   max(K*DF - S, 0)  <=  mid  <=  K*DF
+
+    A mid below the intrinsic floor (negative implied time value) is impossible
+    for a live quote -- it is a STALE deep-ITM quote whose bid/ask did not
+    refresh after the underlying moved. Such rows corrupt the pricing-error
+    statistics (large-magnitude outliers) and cannot be inverted for IV; they
+    are all deep-ITM and never enter the OTM-combined density smile, so removing
+    them does not affect the risk-neutral density or any strategy result.
+    """
+    S, K = df["underlying"], df["strike"]
+    DF = np.exp(-df["r"] * df["T"])
+    is_call = df["option_type"] == "c"
+    intrinsic = np.where(is_call, np.maximum(S - K * DF, 0.0),
+                         np.maximum(K * DF - S, 0.0))
+    upper = np.where(is_call, S, K * DF)
+    tol = config.NO_ARB_TOL
+    bad = df["Mid"].notna() & ((df["Mid"] < intrinsic - tol) | (df["Mid"] > upper + tol))
+    if verbose and bad.any():
+        print(f"[clean] dropped {int(bad.sum())} rows violating no-arbitrage price "
+              f"bounds (stale deep-ITM quotes: mid outside [intrinsic, upper])")
+    return df[~bad]
+
+
 def _backfill_iv(df: pd.DataFrame) -> pd.DataFrame:
     """Invert BSM (bisection) for rows missing IV but having a valid mid."""
     df = df.copy()
@@ -107,6 +138,9 @@ def clean_chain(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     # moneyness outlier filter (global)
     mu, sd = df["moneyness"].mean(), df["moneyness"].std()
     df = df[np.abs(df["moneyness"] - mu) <= config.MONEYNESS_SIGMA * sd]
+
+    # no-arbitrage price-bound filter (removes stale deep-ITM quotes)
+    df = _drop_arbitrage_violations(df, verbose)
 
     n_missing_before = int(df["IV"].isna().sum())
     df = _backfill_iv(df)

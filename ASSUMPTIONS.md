@@ -19,6 +19,7 @@ Nothing downstream hard-codes an economic constant.
 | `ONE_SIDED_BSM_TOL` | **$0.50** | config | keep a one-sided quote only if vendor-IV BSM price is within this of the theoretical mid |
 | `MAX_SPREAD_FRAC` | **0.30** | config | drop illiquid two-sided quotes with (ask−bid)/mid > 30% |
 | `MONEYNESS_SIGMA` | **2.0** | config | drop deep ITM/OTM: |moneyness − mean| > 2σ (global) |
+| `NO_ARB_TOL` | **$0.01** | config | drop quotes violating no-arbitrage price bounds: `mid < intrinsic` (negative time value) or `mid > upper`. European bounds on div-adj spot S, DF=e^{−rT}: call ∈ [max(S−K·DF,0), S], put ∈ [max(K·DF−S,0), K·DF]. Catches stale deep-ITM quotes (~1%, all ITM, never enter the OTM density) |
 | Moneyness def. | calls K/F, puts 2 − K/F | `_transform` | centers distribution at 1 |
 | `IV_MIN, IV_MAX` | **0.01, 5.0** | config | bisection search bounds (decimal vol) for IV backfill |
 
@@ -45,8 +46,10 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 | Min points | ≥ 4 unique strikes | `fit_iv_spline` | below this, no spline fit |
 | Extrapolation | **flat** outside observed strike range | `eval_on_grid` | avoids spurious wings / negative vols when widening the density grid |
 
-> ⚠️ RMSE $9.36 vs paper $7.72 — likely knot-count/tail differences. Revisit knot
-> count if matching the paper's RMSE matters; not material to the strategy.
+> ✅ RESOLVED: pricing MAE $4.38 / RMSE $7.54 (paper $4.50 / $7.72). The earlier
+> $9.36 RMSE gap was caused by ~1% stale deep-ITM quotes with mid below intrinsic
+> value; the no-arb filter (§1) removes them, reconciling RMSE with the paper.
+> Not knot-count related.
 
 ---
 
@@ -170,4 +173,3 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
   static replication + settlement/basis-risk analysis only.
 - Limit-order (fee-free) execution modeling.
 - Bid/ask **size**-aware position sizing.
-- Knot-count tuning to reconcile pricing RMSE with the paper.
