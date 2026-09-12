@@ -30,8 +30,8 @@ end
 
 %% ================= STAGE 2b: SMOOTH (single smile) =================
 subgraph SM["③ SMOOTH — smoothing (ONE smile per day, reused everywhere)"]
-  CLEAN --> S1["fit_daily_smile(day)<br/>OTM-combined: puts strike under F, calls strike at/above F<br/>LSQ spline · SMILE_KNOTS = 6 · quantile knots (SW-retry)"]
-  S1 --> CURVE(["curve = (spline, k_min, k_max, iv_min, iv_max)"])
+  CLEAN --> S1["fit_daily_smile(day)<br/>OTM-combined: puts strike under F, calls strike at/above F<br/>SMILE_METHOD (default SABR; swappable: svi/lsq/cubic/poly/pchip/lowess)"]
+  S1 --> CURVE(["fitted smile · k_min, k_max, iv_min, iv_max"])
   CURVE --> S2["eval_smile(curve, all strikes)<br/>clamp strike ∈ [k_min,k_max] (flat wings)<br/>clamp IV ∈ [iv_min,iv_max] (envelope; kills spline overshoot)"]
   S2 --> LSQ["CHAIN + LSQ_Vol"]
 end
