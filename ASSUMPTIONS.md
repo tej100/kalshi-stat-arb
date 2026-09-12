@@ -79,8 +79,9 @@ smoother — see the unification note below.
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
-| **Primary method** | Breeden–Litzenberger | `bl_density` | model-free RND from option convexity |
+| **Methods** | BL (primary) + GBM (benchmark) | `_METHODS` | the paper's 3rd, an option-price-spread heuristic, was **removed** — not a valid bucket PMF ([C(L)−C(U)]/(U−L) ≈ −dC/dK = tail prob P(S_T>mid), not the bucket mass; sums to ~4) |
 | BL discount factor | f_Q(K) = e^{rT}·∂²C/∂K² (= 1/DF) | `bl_density` | recovers a **true** (undiscounted) probability density |
+| **Coverage guard** | bucket priced only if it overlaps observed [k_min,k_max]; else NaN (untradeable) | `bl_pmf` | don't assign a probability to a bucket with no option support (pure flat-vol extrapolation). Zero result impact (deep-tail buckets don't trade) but honest |
 | No forced rescaling | bucket probs NOT scaled to sum to 1 | `build_pmf_table` | residual = P(SPX breaches all buckets) is kept as signal |
 | Smile input | the **shared** daily smile (`fit_daily_smile`, SABR) | `bl_density` | same surface as pricing/GBM — §2; no separate density smoother |
 | No-arbitrage enforcement | clip dC/dK to [−DF, 0] + **isotonic** (non-decreasing) | `bl_density`, `_isotonic_increasing` | guarantees C convex ⇒ density ≥ 0; a safety net that is now largely a no-op under SABR (arb_neg 0.002) but kept so any `SMILE_METHOD` yields a valid density |
