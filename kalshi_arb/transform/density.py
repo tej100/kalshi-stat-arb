@@ -40,36 +40,14 @@ def _isotonic_increasing(y):
     return out
 
 
-def _iv_curve(day_df, otm=True, n_knots=None):
-    """Fit a smoothed IV(strike) spline for one quote date.
-
-    otm=True builds the market-standard OTM curve (puts below forward, calls
-    above), which is less noisy than deep-ITM quotes; otm=False uses calls only
-    (the paper's literal text).
-    """
-    F = day_df["forward"].iloc[0]
-    if otm:
-        sel = ((day_df["option_type"] == "p") & (day_df["strike"] < F)) | \
-              ((day_df["option_type"] == "c") & (day_df["strike"] >= F))
-        d = day_df[sel]
-    else:
-        d = day_df[day_df["option_type"] == "c"]
-    d = d.dropna(subset=["IV"]).sort_values("strike")
-    if d["strike"].nunique() < 4:
-        return None
-    n_knots = config.DENSITY_KNOTS if n_knots is None else n_knots
-    spline = smoothing.fit_iv_spline(d["strike"], d["IV"], n_knots=n_knots)
-    if spline is None:
-        return None
-    return spline, d["strike"].min(), d["strike"].max()
-
-
-def bl_density(day_df, otm=True):
-    """Return (grid, density) for the Breeden-Litzenberger RND on a wide grid."""
-    curve = _iv_curve(day_df, otm=otm)
+def bl_density(day_df):
+    """Return (grid, density) for the Breeden-Litzenberger RND on a wide grid,
+    built from the SAME daily OTM-combined smile used for pricing and GBM
+    (smoothing.fit_daily_smile)."""
+    curve = smoothing.fit_daily_smile(day_df)
     if curve is None:
         return None
-    spline, k_min, k_max = curve
+    k_min, k_max = curve[1], curve[2]
     S = day_df["underlying"].iloc[0]      # dividend-adjusted spot
     T = day_df["T"].iloc[0]
     r = day_df["r"].iloc[0]
@@ -78,7 +56,7 @@ def bl_density(day_df, otm=True):
     hi = k_max + config.GRID_PAD_HIGH
     grid = np.linspace(lo, hi, config.GRID_POINTS)
 
-    sigma = smoothing.eval_on_grid(spline, grid, k_min, k_max)   # flat wings
+    sigma = smoothing.eval_smile(curve, grid)   # flat wings + IV envelope clamp
     calls = pricing.bsm_call(S, grid, T, r, sigma)
     # Enforce no-arbitrage before differentiating: dC/dK must lie in [-DF, 0]
     # and be non-decreasing (C convex), which makes the density non-negative and
@@ -105,9 +83,9 @@ def bucket_prob(grid, density, L, U):
     return float(np.trapz(density[mask], grid[mask]))
 
 
-def bl_pmf(day_df, buckets, otm=True):
+def bl_pmf(day_df, buckets):
     """Bucket -> probability for one day via Breeden-Litzenberger."""
-    res = bl_density(day_df, otm=otm)
+    res = bl_density(day_df)
     if res is None:
         return None
     grid, density = res

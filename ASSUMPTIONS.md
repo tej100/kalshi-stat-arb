@@ -38,17 +38,31 @@ T days→years (÷365); implied rate `r = −ln(DF)/T`; dividend-adjusted spot
 
 ## 2. Volatility smoothing (`transform/smoothing.py`)
 
+**ONE smile per quote date, used everywhere** (pricing `LSQ_Vol`, GBM ATM vol,
+and the BL density all call `fit_daily_smile` + `eval_smile`). No second/per-type
+smoother — see the unification note below.
+
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
 | Smoother | LSQ univariate spline | `fit_iv_spline` | paper's chosen method (LOWESS/cubic/poly/PCHIP/SABR de-scoped) |
-| `DEFAULT_KNOTS` | **10** interior | `smoothing.py` | balances smoothness vs local flexibility (pricing); density uses `DENSITY_KNOTS`=6 |
+| Smile support | **OTM-combined** (puts K<F, calls K≥F) | `fit_daily_smile` | each strike taken from its less-noisy OTM side; by put-call parity this one IV(K) prices either type |
+| `SMILE_KNOTS` | **6** interior | config | single knot count for the whole surface; modest because the BL density (2nd derivative) amplifies over-fitting |
 | Knot placement | interior **quantiles** of strikes | `fit_iv_spline` | guarantees Schoenberg–Whitney (uniform knots failed on clustered strikes) |
-| Min points | ≥ 4 unique strikes | `fit_iv_spline` | below this, no spline fit |
-| Extrapolation | **flat** outside observed strike range | `eval_on_grid` | avoids spurious wings / negative vols when widening the density grid |
+| Min points | ≥ 4 unique OTM strikes | `fit_daily_smile` | below this, no smile |
+| Strike extrapolation | **flat** outside observed [k_min,k_max] | `eval_smile` | avoids spurious wings |
+| IV-envelope clamp | IV clipped to observed **[iv_min, iv_max]** | `eval_smile` | data-derived (no constant): stops the spline overshooting to absurd/negative vols in sparse far-OTM strike gaps (~12% of days have a >$500 gap; unclamped it hit 913% vol) |
 
-> ✅ RESOLVED: pricing MAE $4.38 / RMSE $7.54 (paper $4.50 / $7.72). The earlier
-> $9.36 RMSE gap was caused by ~1% stale deep-ITM quotes with mid below intrinsic
-> value; the no-arb filter (§1) removes them, reconciling RMSE with the paper.
+> ✅ Pricing MAE **$1.86** / RMSE **$4.26** (paper's original $4.50 / $7.72),
+> after (a) the no-arb filter removing stale deep-ITM quotes and (b) unifying on
+> the clean OTM smile. Both improved vs the old per-type fit ($4.38 / $7.54).
+
+> **Unification note (why there is one smoother, not two):** earlier the density
+> refit its own OTM 6-knot smile while pricing/GBM used a per-type 10-knot smile
+> — an inconsistency that also contradicted the paper ("LSQ_Vol is the basis for
+> pricing AND density estimation"). Collapsed to a single `fit_daily_smile`. This
+> also fixed the call/put ATM disagreement (there is now one ATM vol) and exposed
+> + fixed the spline-overshoot bug (the IV-envelope clamp above), which the old
+> density had been silently masking via its isotonic repair.
 > Not knot-count related.
 
 ---

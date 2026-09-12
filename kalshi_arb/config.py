@@ -23,6 +23,14 @@ IV_MIN, IV_MAX = 0.01, 5.0   # bisection search bounds for implied vol (decimal)
 # an EXACT rule (intrinsic <= mid <= upper) with no tunable threshold, so there is
 # deliberately no parameter for it here.
 
+# ---- volatility smile ------------------------------------------------------
+# ONE smoothed IV smile is fitted per quote date, on OTM-combined options, and
+# used identically for pricing, the GBM ATM vol, and the Breeden-Litzenberger
+# density -- so every model consumes the same surface (no second smoother).
+SMILE_KNOTS = 6              # LSQ spline interior knots. Kept modest because the
+                            # BL density is the 2nd derivative of the price curve,
+                            # which amplifies any over-fitting of the smile.
+
 # ---- pricing ---------------------------------------------------------------
 CONTROL_VARIATE_LAMBDA = 0.20   # Price_adj = BSM + lambda*(Mid - BSM)
 
@@ -33,9 +41,6 @@ CONTROL_VARIATE_LAMBDA = 0.20   # Price_adj = BSM + lambda*(Mid - BSM)
 GRID_PAD_LOW = 2000.0        # extend grid this far below min observed strike
 GRID_PAD_HIGH = 1000.0       # extend grid this far above max observed strike
 GRID_POINTS = 5000
-DENSITY_KNOTS = 6             # spline knots for the BL smile (fewer than pricing's
-                             # 10 -> avoids over-fitting noise that the 2nd
-                             # derivative would amplify into spurious modes)
 DENSITY_SMOOTH_WINDOW = 25    # grid points (~$30) for light mass-preserving
                               # smoothing of the density; removes boundary kinks
 DISCOUNT_PROBABILITY = False  # compare undiscounted P(event) to price (APY covers TV)
