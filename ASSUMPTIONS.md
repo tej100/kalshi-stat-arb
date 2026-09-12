@@ -44,17 +44,17 @@ smoother — see the unification note below.
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
-| Smoother | LSQ univariate spline | `fit_iv_spline` | paper's chosen method (LOWESS/cubic/poly/PCHIP/SABR de-scoped) |
+| **`SMILE_METHOD`** | **`sabr`** (swappable) | config, `smiles.REGISTRY` | chosen by head-to-head comparison (SMOOTHING_COMPARISON.md): smoothest + ~arbitrage-free, 705/705 days calibrate. Options: `sabr\|svi\|lsq\|cubic\|poly\|pchip\|lowess` — set to study smoothing→strategy sensitivity; nothing deprecated |
 | Smile support | **OTM-combined** (puts K<F, calls K≥F) | `fit_daily_smile` | each strike taken from its less-noisy OTM side; by put-call parity this one IV(K) prices either type |
-| `SMILE_KNOTS` | **6** interior | config | single knot count for the whole surface; modest because the BL density (2nd derivative) amplifies over-fitting |
-| Knot placement | interior **quantiles** of strikes | `fit_iv_spline` | guarantees Schoenberg–Whitney (uniform knots failed on clustered strikes) |
-| Min points | ≥ 4 unique OTM strikes | `fit_daily_smile` | below this, no smile |
-| Strike extrapolation | **flat** outside observed [k_min,k_max] | `eval_smile` | avoids spurious wings |
-| IV-envelope clamp | IV clipped to observed **[iv_min, iv_max]** | `eval_smile` | data-derived (no constant): stops the spline overshooting to absurd/negative vols in sparse far-OTM strike gaps (~12% of days have a >$500 gap; unclamped it hit 913% vol) |
+| SABR params | β=0.5 fixed; α, ρ, ν calibrated (least-squares) | `smiles.SABR` | Hagan 2002 lognormal; β=0.5 standard for equity index |
+| `SMILE_KNOTS` | **6** interior | config | only used when `SMILE_METHOD="lsq"`; modest because the BL density (2nd derivative) amplifies over-fitting |
+| Min points | ≥ 4 unique OTM strikes | `fit_daily_smile` | below this / on calibration failure → no smile (day unpriceable) |
+| Strike extrapolation | **flat** outside observed [k_min,k_max] | `eval_smile` | avoids spurious wings (applied to every method) |
+| IV-envelope clamp | IV clipped to observed **[iv_min, iv_max]** | `eval_smile` | data-derived (no constant): stops any fit overshooting to absurd/negative vols in sparse far-OTM strike gaps (~12% of days have a >$500 gap; unclamped LSQ hit 913% vol) |
 
-> ✅ Pricing MAE **$1.86** / RMSE **$4.26** (paper's original $4.50 / $7.72),
-> after (a) the no-arb filter removing stale deep-ITM quotes and (b) unifying on
-> the clean OTM smile. Both improved vs the old per-type fit ($4.38 / $7.54).
+> ✅ Pricing MAE **$1.55** / RMSE **$3.57** (paper's original $4.50 / $7.72),
+> after the no-arb filter, the unified OTM smile, and the SABR smoother. Each step
+> tightened it (per-type LSQ $4.38/$7.54 → unified LSQ $1.86/$4.26 → SABR $1.55/$3.57).
 
 > **Unification note (why there is one smoother, not two):** earlier the density
 > refit its own OTM 6-knot smile while pricing/GBM used a per-type 10-knot smile
@@ -63,7 +63,6 @@ smoother — see the unification note below.
 > also fixed the call/put ATM disagreement (there is now one ATM vol) and exposed
 > + fixed the spline-overshoot bug (the IV-envelope clamp above), which the old
 > density had been silently masking via its isotonic repair.
-> Not knot-count related.
 
 ---
 
@@ -83,10 +82,9 @@ smoother — see the unification note below.
 | **Primary method** | Breeden–Litzenberger | `bl_density` | model-free RND from option convexity |
 | BL discount factor | f_Q(K) = e^{rT}·∂²C/∂K² (= 1/DF) | `bl_density` | recovers a **true** (undiscounted) probability density |
 | No forced rescaling | bucket probs NOT scaled to sum to 1 | `build_pmf_table` | residual = P(SPX breaches all buckets) is kept as signal |
-| No-arbitrage enforcement | clip dC/dK to [−DF, 0] + **isotonic** (non-decreasing) | `bl_density`, `_isotonic_increasing` | guarantees C convex ⇒ density ≥ 0 and removes spurious modes without ad-hoc surgery; makes the density a proper law integrating to ≈1 on the wide grid |
-| `DENSITY_KNOTS` | **6** (vs 10 for pricing) | config | fewer knots ⇒ smile not over-fit; the 2nd derivative no longer amplifies noise into extra modes |
-| `DENSITY_SMOOTH_WINDOW` | **25** grid pts (~$30) | config | light mass-preserving smoothing; removes the flat-extrapolation boundary kink |
-| IV curve for BL | **OTM-combined** (puts below F, calls above) | `_iv_curve(otm=True)` | market standard; less noisy than deep-ITM |
+| Smile input | the **shared** daily smile (`fit_daily_smile`, SABR) | `bl_density` | same surface as pricing/GBM — §2; no separate density smoother |
+| No-arbitrage enforcement | clip dC/dK to [−DF, 0] + **isotonic** (non-decreasing) | `bl_density`, `_isotonic_increasing` | guarantees C convex ⇒ density ≥ 0; a safety net that is now largely a no-op under SABR (arb_neg 0.002) but kept so any `SMILE_METHOD` yields a valid density |
+| `DENSITY_SMOOTH_WINDOW` | **25** grid pts (~$30) | config | light mass-preserving smoothing; removes any flat-extrapolation boundary kink |
 | `GRID_PAD_LOW / HIGH` | **2000 / 1000** | config | widen strike grid beyond observed strikes (flat-vol) so density has near-full support |
 | `GRID_POINTS` | **5000** | config | finite-difference resolution for ∂²C/∂K² |
 | Edge trim | drop 2 grid points each end | `bl_density` | np.gradient boundary error |

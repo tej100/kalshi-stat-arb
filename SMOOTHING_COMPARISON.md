@@ -23,17 +23,18 @@ the density pipeline is identical.
 - **roughness** — total-variation / peak of the raw density; smooth unimodal ≈ 2.
 - **modes** — count of local maxima of the raw density above 5% of peak; 1 = clean.
 
-## Results (mean over 6 sample dates, 2022–2024)
+## Results (mean over 6 sample dates, 2022–2024; all evaluated through the
+## production `eval_smile`: strike-clamp + IV-envelope clamp)
 
 | method | fit_rmse | overshoot | arb_neg | roughness | modes | verdict |
 |---|---|---|---|---|---|---|
-| **SABR** (Hagan, β=0.5) | 0.004 | 0.99 | **0.002** | **2.29** | **2.0** | smoothest, ~arbitrage-free |
-| **SVI** (Gatheral raw) | 0.004 | 0.99 | 0.042 | **2.29** | 2.2 | equally smooth, flexible wings |
-| cubic smoothing spline | 0.005 | 0.98 | 0.053 | 2.36 | 2.0 | smooth but oversmooths wings |
-| polynomial (deg 4) | 0.004 | 1.01 | 0.023 | 2.36 | 2.3 | ok body, Runge in the wings |
-| LSQ spline (production) | 0.002 | 1.00 | 0.021 | 2.72 | 2.5 | tight fit, but spiky raw density |
+| **SABR** (Hagan, β=0.5) — **CHOSEN** | 0.004 | 0.99 | **0.002** | **2.30** | 2.2 | smoothest, ~arbitrage-free, 705/705 days calibrate |
+| **SVI** (Gatheral raw) — kept | 0.004 | 0.99 | **0.002** | 2.69 | 2.3 | ~arbitrage-free, flexible wings |
+| cubic smoothing spline | 0.005 | 0.98 | 0.023 | 2.53 | 2.2 | smooth but oversmooths wings |
+| polynomial (deg 4) | 0.004 | 1.00 | 0.019 | 3.01 | 3.0 | ok body, Runge in the wings |
+| LSQ spline (former default) | 0.002 | 1.00 | 0.021 | 2.72 | 2.5 | tight fit, spiky raw density, needs repair |
 | PCHIP (monotone) | 0.000 | 1.00 | 0.199 | 6.38 | 14 | **interpolates noise → 20% arbitrage** |
-| LOWESS | 0.003 | 0.99 | 29.4 (rough) | 29.4 | 93 | **density is pure noise** |
+| LOWESS | 0.003 | 0.99 | 0.012 | 29.4 | 93 | **density is pure noise** |
 
 ## Findings
 1. **PCHIP and LOWESS are disqualified.** PCHIP interpolates every noisy point
@@ -51,14 +52,18 @@ the density pipeline is identical.
 4. Cubic/polynomial are middling: smooth in the body, but polynomial Runge-
    oscillates in sparse wings and cubic oversmooths the skew.
 
-## Recommendation
-Move the **global** smoother from LSQ to a **parametric arbitrage-free form —
-SVI or SABR**. Both beat LSQ on density smoothness and arbitrage, match its fit
-quality, and remove the need for post-hoc density repair. SVI is the modern
-equity-index standard (better wing control); SABR is the classic, physically
-motivated 3-parameter form and scored the lowest arbitrage here. Final pick is a
-visual call on the wings (see `smoother_comparison.png`); either is a structural
-improvement over the current knot-spline.
+## Decision (implemented)
+**Global smoother = SABR** (`config.SMILE_METHOD = "sabr"`). It is the smoothest,
+most arbitrage-free form, calibrates on all 705 days, and tightened pricing to
+MAE $1.55 / RMSE $3.57 (from LSQ's $1.86 / $4.26). BL results improved on the
+cleaner density (e.g. 2023 BL Sharpe 0.58 → 0.81).
+
+**Every method is retained and swappable.** All seven live in
+`kalshi_arb.transform.smiles.REGISTRY`; set `config.SMILE_METHOD` to any of
+`sabr | svi | lsq | cubic | poly | pchip | lowess` to study how the smoothing
+model propagates to strategy results. SVI is kept specifically for that A/B
+comparison. Nothing is deprecated; the production pipeline and this comparison
+share the one implementation.
 
 > NOTE: the raw density is shown pre-repair to expose each method's *native*
 > quality. In production every method passes through the isotonic + smoothing

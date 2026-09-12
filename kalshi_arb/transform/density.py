@@ -44,19 +44,18 @@ def bl_density(day_df):
     """Return (grid, density) for the Breeden-Litzenberger RND on a wide grid,
     built from the SAME daily OTM-combined smile used for pricing and GBM
     (smoothing.fit_daily_smile)."""
-    curve = smoothing.fit_daily_smile(day_df)
-    if curve is None:
+    sm = smoothing.fit_daily_smile(day_df)
+    if sm is None:
         return None
-    k_min, k_max = curve[1], curve[2]
     S = day_df["underlying"].iloc[0]      # dividend-adjusted spot
     T = day_df["T"].iloc[0]
     r = day_df["r"].iloc[0]
 
-    lo = max(k_min - config.GRID_PAD_LOW, 1.0)
-    hi = k_max + config.GRID_PAD_HIGH
+    lo = max(sm.k_min - config.GRID_PAD_LOW, 1.0)
+    hi = sm.k_max + config.GRID_PAD_HIGH
     grid = np.linspace(lo, hi, config.GRID_POINTS)
 
-    sigma = smoothing.eval_smile(curve, grid)   # flat wings + IV envelope clamp
+    sigma = smoothing.eval_smile(sm, grid)   # flat wings + IV envelope clamp
     calls = pricing.bsm_call(S, grid, T, r, sigma)
     # Enforce no-arbitrage before differentiating: dC/dK must lie in [-DF, 0]
     # and be non-decreasing (C convex), which makes the density non-negative and

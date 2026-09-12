@@ -27,9 +27,14 @@ IV_MIN, IV_MAX = 0.01, 5.0   # bisection search bounds for implied vol (decimal)
 # ONE smoothed IV smile is fitted per quote date, on OTM-combined options, and
 # used identically for pricing, the GBM ATM vol, and the Breeden-Litzenberger
 # density -- so every model consumes the same surface (no second smoother).
-SMILE_KNOTS = 6              # LSQ spline interior knots. Kept modest because the
-                            # BL density is the 2nd derivative of the price curve,
-                            # which amplifies any over-fitting of the smile.
+# The functional form is swappable (see transform/smiles.REGISTRY) so its effect
+# on strategy results can be studied; SABR is the chosen default (smoothest,
+# ~arbitrage-free -- see SMOOTHING_COMPARISON.md). Options: sabr | svi | lsq |
+# cubic | poly | pchip | lowess.
+SMILE_METHOD = "sabr"
+SMILE_KNOTS = 6             # interior knots when SMILE_METHOD="lsq" (modest: the
+                            # BL density is the 2nd derivative and amplifies
+                            # over-fitting).
 
 # ---- pricing ---------------------------------------------------------------
 CONTROL_VARIATE_LAMBDA = 0.20   # Price_adj = BSM + lambda*(Mid - BSM)
