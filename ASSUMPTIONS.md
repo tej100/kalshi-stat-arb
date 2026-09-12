@@ -19,7 +19,7 @@ Nothing downstream hard-codes an economic constant.
 | `ONE_SIDED_BSM_TOL` | **$0.50** | config | keep a one-sided quote only if vendor-IV BSM price is within this of the theoretical mid |
 | `MAX_SPREAD_FRAC` | **0.30** | config | drop illiquid two-sided quotes with (ask−bid)/mid > 30% |
 | `MONEYNESS_SIGMA` | **2.0** | config | drop deep ITM/OTM: |moneyness − mean| > 2σ (global) |
-| `NO_ARB_TOL` | **$0.01** | config | drop quotes violating no-arbitrage price bounds: `mid < intrinsic` (negative time value) or `mid > upper`. European bounds on div-adj spot S, DF=e^{−rT}: call ∈ [max(S−K·DF,0), S], put ∈ [max(K·DF−S,0), K·DF]. Catches stale deep-ITM quotes (~1%, all ITM, never enter the OTM density) |
+| No-arbitrage bound filter | **exact rule, no parameter** | `_drop_arbitrage_violations` | keep iff `intrinsic ≤ mid ≤ upper`. European bounds on div-adj spot S, DF=e^{−rT}: call ∈ [max(S−K·DF,0), S], put ∈ [max(K·DF−S,0), K·DF]. Drops ~1% stale deep-ITM quotes (all ITM, never enter the OTM density). No tolerance: the bound is a hard law and a strict test vs a 1e-9 epsilon drops identical rows (no float-noise risk) |
 | Moneyness def. | calls K/F, puts 2 − K/F | `_transform` | centers distribution at 1 |
 | `IV_MIN, IV_MAX` | **0.01, 5.0** | config | bisection search bounds (decimal vol) for IV backfill |
 

@@ -76,8 +76,10 @@ def _drop_arbitrage_violations(df: pd.DataFrame, verbose: bool) -> pd.DataFrame:
     intrinsic = np.where(is_call, np.maximum(S - K * DF, 0.0),
                          np.maximum(K * DF - S, 0.0))
     upper = np.where(is_call, S, K * DF)
-    tol = config.NO_ARB_TOL
-    bad = df["Mid"].notna() & ((df["Mid"] < intrinsic - tol) | (df["Mid"] > upper + tol))
+    # Exact no-arbitrage box: keep iff intrinsic <= mid <= upper. No tolerance --
+    # the bound is a hard law, violations here span $0-$28 (median $0.69), and a
+    # strict test vs a 1e-9 epsilon drops the identical rows (no float-noise risk).
+    bad = df["Mid"].notna() & ((df["Mid"] < intrinsic) | (df["Mid"] > upper))
     if verbose and bad.any():
         print(f"[clean] dropped {int(bad.sum())} rows violating no-arbitrage price "
               f"bounds (stale deep-ITM quotes: mid outside [intrinsic, upper])")

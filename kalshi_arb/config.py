@@ -19,9 +19,9 @@ MAX_SPREAD_FRAC = 0.30       # drop quote if (ask-bid)/mid exceeds this
 MONEYNESS_SIGMA = 2.0        # drop quotes > this many std from mean moneyness
 ONE_SIDED_BSM_TOL = 0.50     # $ tolerance to keep a one-sided (assumed-0) mid-price
 IV_MIN, IV_MAX = 0.01, 5.0   # bisection search bounds for implied vol (decimal)
-NO_ARB_TOL = 0.01            # $ slack on the no-arbitrage price bounds
-                             # (drop mid < intrinsic or mid > upper bound; catches
-                             # stale deep-ITM quotes with negative implied time value)
+# No-arbitrage price-bound filter (transform/clean._drop_arbitrage_violations) is
+# an EXACT rule (intrinsic <= mid <= upper) with no tunable threshold, so there is
+# deliberately no parameter for it here.
 
 # ---- pricing ---------------------------------------------------------------
 CONTROL_VARIATE_LAMBDA = 0.20   # Price_adj = BSM + lambda*(Mid - BSM)
