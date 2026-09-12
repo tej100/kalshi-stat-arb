@@ -52,9 +52,9 @@ smoother — see the unification note below.
 | Strike extrapolation | **flat** outside observed [k_min,k_max] | `eval_smile` | avoids spurious wings (applied to every method) |
 | IV-envelope clamp | IV clipped to observed **[iv_min, iv_max]** | `eval_smile` | data-derived (no constant): stops any fit overshooting to absurd/negative vols in sparse far-OTM strike gaps (~12% of days have a >$500 gap; unclamped LSQ hit 913% vol) |
 
-> ✅ Pricing MAE **$1.55** / RMSE **$3.57** (paper's original $4.50 / $7.72),
-> after the no-arb filter, the unified OTM smile, and the SABR smoother. Each step
-> tightened it (per-type LSQ $4.38/$7.54 → unified LSQ $1.86/$4.26 → SABR $1.55/$3.57).
+> ✅ Pricing (HONEST model accuracy, no control-variate blend): MAE **$1.93** /
+> RMSE **$4.46** (paper's original $4.50 / $7.72). Progression: per-type LSQ
+> $4.38/$7.54 → unified LSQ → unified SABR → SABR w/o CV $1.93/$4.46.
 
 > **Unification note (why there is one smoother, not two):** earlier the density
 > refit its own OTM 6-knot smile while pricing/GBM used a per-type 10-knot smile
@@ -71,7 +71,7 @@ smoother — see the unification note below.
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
 | Model | spot-based BSM on dividend-adjusted S with rate r | `bsm_call/put` | European SPX; no separate dividend-yield term needed |
-| `CONTROL_VARIATE_LAMBDA` | **0.20** | config | Price_adj = BSM + λ(Mid − BSM); partial market anchoring w/o overfitting |
+| Control variate | **removed** (no blend) | `price_chain` | `BSM` = pure model price. The old λ=0.2 blend toward market mid only flattered the pricing diagnostic and, if used to build the density, corrupted it (modes 2→54); it never touched the strategy. Verified in `analysis/control_variate_test.py`. Verified: parity `C−P=S−K·DF` exact, call BSM ↓ / put BSM ↑ in strike 100%, 0 negative, 0 NaN |
 
 ---
 

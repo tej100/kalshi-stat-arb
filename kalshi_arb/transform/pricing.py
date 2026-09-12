@@ -1,7 +1,12 @@
-"""Black-Scholes-Merton pricing primitives, implied-vol inversion, control variate.
+"""Black-Scholes-Merton pricing primitives and implied-vol inversion.
 
 Convention: spot-based BSM on the dividend-adjusted underlying S with continuous
 rate r (so no separate dividend yield term). T is in YEARS, sigma in decimal.
+
+The `BSM` column is the pure model price from the smoothed smile -- no blend
+toward market mids. (An earlier "control variate" lambda-blend was removed: it
+only flattered the pricing diagnostic and, when used to build the density,
+corrupted it -- see analysis/control_variate_test.py.)
 """
 from __future__ import annotations
 import numpy as np
@@ -50,16 +55,9 @@ def implied_vol(S, K, T, r, market_price, option_type,
     return np.nan
 
 
-def apply_control_variate(model_price, mid, lam=None):
-    """Price_adj = model + lam*(mid - model). Anchors model toward market."""
-    lam = config.CONTROL_VARIATE_LAMBDA if lam is None else lam
-    return model_price + lam * (mid - model_price)
-
-
 def price_chain(df: pd.DataFrame) -> pd.DataFrame:
-    """Add a control-variate-adjusted BSM price column using LSQ_Vol."""
+    """Add the model BSM price column from the smoothed smile vol (LSQ_Vol)."""
     df = df.copy()
-    raw = bsm_price(df["option_type"].values, df["underlying"], df["strike"],
-                    df["T"], df["r"], df["LSQ_Vol"])
-    df["BSM"] = apply_control_variate(raw, df["Mid"].values)
+    df["BSM"] = bsm_price(df["option_type"].values, df["underlying"], df["strike"],
+                          df["T"], df["r"], df["LSQ_Vol"])
     return df

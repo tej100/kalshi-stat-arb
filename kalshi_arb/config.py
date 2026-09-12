@@ -37,7 +37,8 @@ SMILE_KNOTS = 6             # interior knots when SMILE_METHOD="lsq" (modest: th
                             # over-fitting).
 
 # ---- pricing ---------------------------------------------------------------
-CONTROL_VARIATE_LAMBDA = 0.20   # Price_adj = BSM + lambda*(Mid - BSM)
+# (no control-variate blend: the smile is already fit to market IVs, so the BSM
+# column is the pure model price. See analysis/control_variate_test.py.)
 
 # ---- density ---------------------------------------------------------------
 # Strike grid is widened beyond observed strikes (flat-vol extrapolation) so the
