@@ -139,7 +139,6 @@ def spread_pmf(day_df, buckets):
     puts = day_df[day_df["option_type"] == "p"].set_index("strike")["BSM"]
     if calls.empty or puts.empty:
         return None
-    ks = np.sort(day_df["strike"].unique())
 
     def interp(series, K):
         return float(np.interp(K, series.index, series.values,
@@ -164,7 +163,7 @@ def spread_pmf(day_df, buckets):
 _METHODS = {"bl": bl_pmf, "gbm": gbm_pmf, "spread": spread_pmf}
 
 
-def build_pmf_table(chain, kalshi, method="bl", **kw):
+def build_pmf_table(chain, kalshi, method="bl"):
     """{year: DataFrame[date x bucket]} of model probabilities.
 
     A date is priced only if a same-year-expiry SPXW option chain exists for
@@ -197,7 +196,7 @@ def build_pmf_table(chain, kalshi, method="bl", **kw):
             day_df = by_day.get(pd.Timestamp(date))
             if day_df is None:
                 continue
-            probs = fn(day_df, buckets, **kw) if method == "bl" else fn(day_df, buckets)
+            probs = fn(day_df, buckets)
             if probs is not None:
                 template.loc[date] = pd.Series(probs)
         out[year] = template
