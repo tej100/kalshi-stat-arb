@@ -1,14 +1,15 @@
 # IV Smoothing Method Comparison
 
 Reusable head-to-head of implied-volatility smoothing methods for risk-neutral
-density (RND) extraction. Framework: [`analysis/smoothers.py`](analysis/smoothers.py)
-(self-contained smoother classes + one shared RND pipeline) and
-[`analysis/compare_smoothers.py`](analysis/compare_smoothers.py) (driver → metrics
-+ `analysis/figures/smoother_comparison.png`). Standalone enough to lift into a
-separate volatility-surface methods paper.
+density (RND) extraction. The smoothers live in
+[`kalshi_arb/transform/smiles.py`](kalshi_arb/transform/smiles.py) (one registry,
+shared with the production pipeline) and
+[`analysis/compare_smoothers.py`](analysis/compare_smoothers.py) drives the
+comparison and writes its plot to `analysis/figures/` (generated, not tracked).
+Standalone enough to lift into a separate volatility-surface methods paper.
 
 ## Methods (all those in the original paper + SVI)
-LSQ spline (current production), cubic smoothing spline, polynomial (deg 4),
+LSQ spline (former default), cubic smoothing spline, polynomial (deg 4),
 PCHIP (monotone), LOWESS, SABR (Hagan 2002, β=0.5), SVI (Gatheral raw). SABR and
 SVI are implemented directly (no `pysabr` dependency).
 
@@ -68,3 +69,32 @@ share the one implementation.
 > NOTE: the raw density is shown pre-repair to expose each method's *native*
 > quality. In production every method passes through the isotonic + smoothing
 > step, so even LSQ yields a usable density — but SVI/SABR need no repair at all.
+
+## Strategy-level robustness: does the smile model change the result?
+
+The table above judges smoothers on density quality. The question that matters for
+the strategy is whether the choice changes what is traded and earned.
+[`analysis/smile_robustness.py`](analysis/smile_robustness.py) reruns the full
+backtest (both-side, liquidation-side marking, risk-free = Kalshi APY) with four
+treatments of the smile, none of which adds a tuned parameter: **SABR** (default),
+**SVI**, the **average** of the two bucket PMFs, and an **agreement** filter that
+keeps a SABR signal only when SVI independently signals the same direction.
+
+| variant | 2022 Sharpe [95% CI] | 2023 Sharpe [95% CI] | 2024 Sharpe [95% CI] | fills 22 / 23 / 24 |
+|---|---|---|---|---|
+| SABR | 1.93 [0.23, 3.71] | 2.85 [0.51, 4.87] | 1.03 [−0.33, 2.39] | 102 / 78 / 41 |
+| SVI | 2.04 [0.15, 3.96] | 2.76 [0.39, 4.72] | 0.67 [−0.61, 1.88] | 91 / 81 / 45 |
+| average | 1.93 [0.18, 3.80] | 2.87 [0.54, 4.83] | 0.85 [−0.54, 2.20] | 97 / 79 / 45 |
+| agreement | 2.19 [0.29, 4.12] | 2.84 [0.46, 4.82] | 0.68 [−0.59, 1.88] | 84 / 66 / 39 |
+
+**The four are statistically indistinguishable.** The largest Sharpe gap between any
+two variants is 0.26 / 0.11 / 0.37 by year, against confidence intervals about 3.5
+Sharpe units wide. The densities do differ (mean absolute SABR−SVI bucket probability
+0.58¢), so this is not a case of the toggle doing nothing; the strategy simply
+trades the same mispricings whichever arbitrage-free smile is fitted. The agreement
+filter removes trades without improving results, so it is not worth its complexity.
+
+Consequences: the choice of SABR over SVI rests on smoothness and calibration
+(above), not on strategy performance, and the paper can report the result as
+insensitive to the smile model. Sharpe figures in the decision section above
+predate later audit fixes; use this table for current numbers.
