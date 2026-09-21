@@ -133,11 +133,13 @@ smoother — see the unification note below.
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
-| Entry rule | buy if model_p > ask+fee; sell if model_p < bid−fee | `signals.generate` | trade only past-fee mispricings |
+| Entry rule | buy if model_p > ask + hurdle; sell if model_p < bid − hurdle | `signals.generate` | trade only past-fee mispricings |
+| Fee hurdle | `2 · fee(price, lot) / lot` (PER CONTRACT) | `signals.entry_hurdle` | a lot of C contracts breaks even when C·(model_p−price) > fee, i.e. at fee/C per contract; comparing the undivided lot fee to a per-contract price demanded 8× too much edge (fixed Phase 7) |
+| `FEE_ROUND_TRIP_FILLS` | **2** | config | not tunable: Kalshi charges the taker fee on BOTH fills of a market-order round trip. Positions held to settlement pay no exit fee, so the hurdle is mildly conservative |
 | `LOT_SIZE` | **8** contracts | config | paper's tuned lot (fee-efficiency vs liquidity) |
 | **`MAX_LOTS_PER_BUCKET`** | **1** (no pyramiding) | config | **risk-managed design**: cap per-bucket exposure so PV stays > 0 and metrics are well-defined |
 | `START_CASH` | **$200** | config | buffer for consecutive losses on the small base |
-| `KALSHI_FEE_RATE` | **0.035** | config | fee = ⌈0.035·C·p·(1−p)·100⌉/100 $ per lot (limit orders would be fee-free — future work) |
+| `KALSHI_FEE_RATE` | **0.035** | config | fee = ⌈0.035·C·p·(1−p)·100⌉/100 $ per lot. This is the taker rate **in force over the 2022–2024 sample**, which is what the backtest must charge. Kalshi's *current* schedule is 0.07 taker / 0.0175 maker, so limit orders are no longer fee-free; results are robust to the change (BL both-side Sharpe 1.21/2.74/1.09 at 0.07) |
 | `KALSHI_APY` | **3.75%**, monthly | config, `backtest.run` | yield on cash **and** open positions |
 | Settlement | $1 if year-end close ∈ [L,U] | `backtest.run` | `SPX_YEAR_END_CLOSE` = {2022:3839.50, 2023:4769.83, 2024:5881.63} (actual S&P 500 cash closes) |
 | Marking | **mid of a valid book**; empty book (bid ≤ `MARK_MIN_BID`=2c & ask ≥ `MARK_MAX_ASK`=98c) or missing → last valid mid → model | `_valid_book`, `backtest.run` | an empty book (bid 0 / ask 100 when SPX has left a bucket) is a phantom price, NOT a liquidation value; marking shorts there caused the 2024 −33% artifact |
@@ -184,5 +186,5 @@ smoother — see the unification note below.
   offsetting SPX iron-condor and track both legs' MTM daily (options are the EOY
   expiry, so daily marking is feasible). Current hedging module (`hedging.py`) does
   static replication + settlement/basis-risk analysis only.
-- Limit-order (fee-free) execution modeling.
+- Limit-order execution modeling (note: no longer fee-free under Kalshi's current 0.0175 maker rate).
 - Bid/ask **size**-aware position sizing.

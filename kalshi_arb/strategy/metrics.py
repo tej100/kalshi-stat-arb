@@ -100,6 +100,47 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None) -> dict:
     )
 
 
+def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
+                        mean_block=10, alpha=0.05, seed=0) -> dict:
+    """Stationary block-bootstrap confidence interval for the Sharpe ratio.
+
+    The point estimate is fragile here and should never be quoted bare: the book
+    is a ~$200 base turning over a few dozen lots a year, so daily returns are
+    lumpy and heavy-tailed (excess kurtosis 6.6-28.4 by year). A plain i.i.d.
+    bootstrap would understate the spread because the mark-to-market path is
+    serially dependent, so blocks of geometrically-distributed length (mean
+    `mean_block` days) are resampled instead, which preserves short-run
+    dependence.
+
+    Returns the point estimate, the interval, and the share of resamples above
+    0 and above 1 -- the useful summary being that the SIGN is well determined
+    while the MAGNITUDE is not.
+    """
+    rng = np.random.default_rng(seed)
+    td = trading_days(chain, year, m.index)
+    r = _daily_returns(m["portfolio_value"].loc[td])
+    v = r.values
+    n = len(v)
+    if n < 30:
+        return dict(sharpe=np.nan, lo=np.nan, hi=np.nan, p_gt0=np.nan, p_gt1=np.nan, n=n)
+
+    def _sharpe(x):
+        ar, av = x.mean() * config.TRADING_DAYS, x.std() * np.sqrt(config.TRADING_DAYS)
+        return (ar - config.BENCH_RF) / av if av > 0 else np.nan
+
+    out = np.empty(reps)
+    for i in range(reps):
+        idx = []
+        while len(idx) < n:
+            s = rng.integers(0, n)
+            idx.extend(((s + np.arange(rng.geometric(1 / mean_block))) % n).tolist())
+        out[i] = _sharpe(v[np.array(idx[:n])])
+    lo, hi = np.nanpercentile(out, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    return dict(sharpe=_sharpe(v), lo=lo, hi=hi,
+                p_gt0=float(np.nanmean(out > 0)), p_gt1=float(np.nanmean(out > 1)),
+                n=n, kurtosis=float(r.kurt()))
+
+
 def format_table(records: list[dict]) -> pd.DataFrame:
     """records: list of dicts with year, model, side + summarize() output."""
     df = pd.DataFrame(records)

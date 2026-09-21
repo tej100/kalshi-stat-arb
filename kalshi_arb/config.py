@@ -94,6 +94,20 @@ OUTAGE_ASK_LEVEL = 0.90
 OUTAGE_MIN_BUCKETS = 2
 START_CASH = 200.0           # initial cash ($)
 KALSHI_FEE_RATE = 0.035      # fee = ceil(rate * contracts * p * (1-p)) cents
+# NOTE (verified 2026-09): this is the taker rate that applied over the
+# 2022-2024 sample. Kalshi's CURRENT published schedule is 0.07 (with a separate
+# 0.0175 maker rate), i.e. double, so a present-day replication would face
+# higher costs -- see PAPER_CHANGES.md. Kept at 0.035 because the backtest must
+# price the fees the strategy would actually have paid in-sample. With the
+# per-contract hurdle below, results are not fragile to this: BL both-side
+# Sharpe is 1.53/3.16/1.34 at 0.035 versus 1.21/2.74/1.09 at 0.07.
+# Round trips per position, used to size the entry hurdle in signals.generate.
+# NOT a tunable: Kalshi charges the taker fee on BOTH fills of a market-order
+# round trip (open and close), so a signal must clear two fees to be worth
+# taking. The backtest charges each fill's fee separately, so this only decides
+# which signals fire, not what they cost. Positions that instead run to year-end
+# settlement pay no exit fee, which makes this hurdle mildly conservative.
+FEE_ROUND_TRIP_FILLS = 2
 KALSHI_APY = 0.0375          # yield on cash + open positions, accrued monthly
 BENCH_RF = 0.03              # annual risk-free rate for Sharpe/alpha benchmarking
 TRADING_DAYS = 252           # annualization factor (consistent across strat + bench)

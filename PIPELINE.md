@@ -54,7 +54,7 @@ end
 
 %% ================= STAGE 3: STRATEGY =================
 subgraph ST["⑥ STRATEGY"]
-  MPMF --> G1["signals.generate(side)<br/>buy iff model_p > ask + fee · sell iff model_p < bid − fee<br/>fee = ⌈0.035·|C|·100·p(1−p)⌉ / 100"]
+  MPMF --> G1["signals.generate(side)<br/>buy iff model_p > ask + h · sell iff model_p < bid − h<br/>h = entry_hurdle = 2·fee/|C| (PER CONTRACT, round trip)<br/>fee = ⌈0.035·|C|·100·p(1−p)⌉ / 100 (whole lot, $)"]
   KAL --> G1
   G1 --> TR["TRADES (raw signal log; re-fires daily)"]
   TR --> B1["backtest.run<br/>execute with no-pyramiding cap · cash −= qty·price + fee<br/>mark = valid-book mid → last valid mid → model<br/>monthly APY on PV · settle $1 if close ∈ [L,U]"]
@@ -102,6 +102,10 @@ class RAW,KAL,CLEAN,LSQ,PRICED,CURVE,MPMF,KPMF,TR,PV,OUT art;
 - **One book-validity rule.** `kalshi_pmf.is_valid_book` is the single definition
   (missing quote, or bid ≤ 2c *and* ask ≥ 98c → not a real market); `backtest.run`
   imports it for marking, so the traded and analysis paths cannot drift apart.
+- **The fee hurdle is per CONTRACT, the fee itself is per LOT.** `kalshi_fee` returns
+  dollars for the whole lot (which is what `backtest.run` spends); `entry_hurdle`
+  divides by the lot and doubles it for the round trip. Mixing the two units was a
+  real bug (fixed Phase 7) that demanded 8× the break-even edge.
 - **The backtest index is a CALENDAR-day index** (365/366 rows incl. ~105 weekend
   days), because Kalshi trades 24/7. New signals fire only on the ~240 weekdays with
   a same-day option chain, but positions mark on every calendar row — so the ×252
