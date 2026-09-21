@@ -97,12 +97,15 @@ def main():
     # 7. hedging cross-market edge distribution
     allh = pd.concat([hedging.analyze_year(chain, kalshi, y, verbose=False).assign(year=y)
                       for y in config.YEARS])
-    plt.figure(figsize=(5.5, 3.4))
-    plt.hist(allh["edge"], bins=60, color=NAVY, alpha=0.85)
-    plt.axvline(0, color=RED, ls="--")
-    plt.axvline(0.05, color=GREY, ls=":"); plt.axvline(-0.05, color=GREY, ls=":")
-    plt.xlabel("Kalshi price − options replication ($)"); plt.ylabel("count")
-    plt.title("Cross-market dislocation (hedging)"); save("hedging_edge.png")
+    plt.figure(figsize=(5.8, 3.5))
+    plt.hist(allh["edge"] * 100, bins=60, range=(-15, 15), color=NAVY, alpha=0.75,
+             label="mid-to-mid gap")
+    plt.hist(allh["net_edge"] * 100, bins=60, range=(-15, 15), color=RED, alpha=0.6,
+             label="capturable after spreads and fee")
+    plt.axvline(0, color=GREY, ls="--")
+    plt.xlabel("Kalshi vs SPX-option replication (cents; x-axis clipped to +/-15)")
+    plt.ylabel("count"); plt.legend(fontsize=8)
+    plt.title("Cross-market gap vs what execution allows"); save("hedging_edge.png")
 
     print("done.")
 

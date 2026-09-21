@@ -192,6 +192,8 @@ Alpha is statistically distinguishable from zero in only one of six model-years 
 - **Daily mark-to-market HEDGED backtest**: pair each Kalshi bucket trade with its
   offsetting SPX iron-condor and track both legs' MTM daily (options are the EOY
   expiry, so daily marking is feasible). Current hedging module (`hedging.py`) does
-  static replication + settlement/basis-risk analysis only.
+  a static same-day comparison of each Kalshi bucket with its out-of-the-money option
+  replication (mid gap, executable edge after spreads and fee, density-weighted
+  replication error); see `HEDGING.md`.
 - Limit-order execution modeling (note: no longer fee-free under Kalshi's current 0.0175 maker rate).
 - Bid/ask **size**-aware position sizing.

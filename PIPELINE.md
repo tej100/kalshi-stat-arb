@@ -67,7 +67,7 @@ end
 
 %% ================= SIDE: ANALYSIS (not traded legs) =================
 subgraph HG["⑦ HEDGING — hedging.analyze_year (independent cross-market check)"]
-  PRICED --> H1["replicate_bucket → SPX call condor (payoff 1 in-range)<br/>edge = Kalshi price − condor mid · basis risk"]
+  PRICED --> H1["replicate_bucket → OTM option spreads (puts below F, calls above; bond leg if mixed)<br/>same-day only · edge = Kalshi mid − replication mid<br/>executable edge crosses both spreads − Kalshi fee · basis = E_Q|payoff gap|"]
   KAL --> H1
 end
 

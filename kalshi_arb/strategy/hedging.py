@@ -1,23 +1,51 @@
-"""SPX iron-condor replication of Kalshi buckets, and basis-risk analysis.
+"""SPX-option replication of Kalshi buckets, and the cross-market edge it implies.
 
-A Kalshi bucket [L, U] pays $1 if L <= S_T <= U. It is replicated with SPX
-options as the difference of two tight call spreads:
+A Kalshi bucket [L, U] pays $1 if L <= S_T <= U, i.e. 1[S>L] - 1[S>U]. Each
+indicator is approximated by a TIGHT SPREAD across the two listed strikes that
+bracket the edge, scaled by 1/width so it climbs from 0 to 1 across the gap:
 
-    long-range[L,U]  =  callspread(A1->A2 around L)  -  callspread(B1->B2 around U)
+    1[S>K]  ~  call spread (long C(k1), short C(k2)) / (k2-k1)       payoff 0 -> 1
+            =  1 - put spread (long P(k2), short P(k1)) / (k2-k1)    (put-call parity)
 
-where A1<A2 bracket L and B1<B2 bracket U (nearest available strikes). Each
-spread is scaled by 1/width so it climbs from 0 to 1, giving a payoff that is
-~1 on [A2, B1] ~ [L, U] and ramps at the edges. The ramp (finite strike
-spacing) is the irreducible BASIS RISK versus the exact binary.
+Each edge is built from the OUT-OF-THE-MONEY spread (puts below the forward,
+calls above it). The two constructions have the same payoff and, by parity, the
+same fair value, but in-the-money options are illiquid and quoted with wide
+spreads, and because each leg carries weight 1/width, one index point of error in a
+leg's quote moves the bucket price by 1/width of a unit (10 cents at a 10-point strike
+spacing, 4 cents at 25). An ITM-call replication therefore turns quote noise into
+apparent "mispricing". When the
+two edges use different option types the identity 1[S>K] = 1 - put spread adds a
+zero-coupon bond leg worth DF.
 
-Buying the Kalshi bucket and selling this replicating condor (or vice-versa)
-locks the cross-market mispricing up to that basis risk.
+WHAT IS AND IS NOT MEASURED
+  * The comparison is Kalshi vs replication on the SAME DAY only (no stale chain),
+    using the Kalshi book (mid, bid, ask), never the last trade.
+  * Both prices are present values of the same terminal claim, so they are
+    compared directly with no discounting adjustment.
+  * `edge` is the mid-to-mid gap. The EXECUTABLE edge crosses every spread:
+    sell Kalshi at its bid and buy the replication at the option asks, or the
+    reverse. Kalshi's taker fee is deducted; option commissions are not modelled.
+  * The replication is imperfect by construction (the ramps). Its risk is the
+    density-weighted expected payoff gap E_Q|condor - binary| under the day's
+    own Breeden-Litzenberger density, not an average over an arbitrary grid.
 """
 from __future__ import annotations
+from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from .. import config
-from ..transform import buckets
+from ..transform import buckets, density
+from ..transform.kalshi_pmf import is_valid_book, feed_outage_days
+from .signals import kalshi_fee
+
+
+@dataclass
+class Replication:
+    """legs: (option_type 'c'|'p', strike, qty); bond: units of a $1 zero-coupon
+    bond at expiry; edges: the bracketing strikes (a1, a2) at L and (b1, b2) at U."""
+    legs: list
+    bond: float
+    edges: tuple
 
 
 def _bracket(strikes, target):
@@ -30,39 +58,51 @@ def _bracket(strikes, target):
 
 
 def replicate_bucket(day_df, L, U):
-    """Return replicating call legs [(strike, qty), ...] for bucket [L, U].
+    """Replication of bucket [L, U] from listed options, or None if it cannot be built.
 
-    qty > 0 long, < 0 short. None if strikes don't bracket both edges.
+    None when a bucket edge lies outside the listed strikes, or when both edges
+    fall inside the same strike gap (the two ramps overlap and the legs would
+    cancel, leaving a zero-priced "replication" of a bucket that is not zero).
+    Only strikes listed as BOTH a call and a put are used, so either option type
+    is available at every edge.
     """
-    calls = day_df[day_df["option_type"] == "c"]
-    ks = np.sort(calls["strike"].unique())
-    lo = _bracket(ks, L)
-    hi = _bracket(ks, U)
+    F = float(day_df["forward"].iloc[0])
+    kc = np.sort(day_df.loc[day_df["option_type"] == "c", "strike"].unique())
+    kp = np.sort(day_df.loc[day_df["option_type"] == "p", "strike"].unique())
+    ks = np.intersect1d(kc, kp)
+    lo, hi = _bracket(ks, L), _bracket(ks, U)
     if lo is None or hi is None:
         return None
-    a1, a2 = lo
-    b1, b2 = hi
-    if a2 == a1 or b2 == b1:
+    (a1, a2), (b1, b2) = lo, hi
+    if a2 > b1:
         return None
     wl, wu = a2 - a1, b2 - b1
-    # low spread climbs 0->1 across [a1,a2]; high spread (subtracted) across [b1,b2]
-    legs = [(a1, +1 / wl), (a2, -1 / wl), (b1, -1 / wu), (b2, +1 / wu)]
-    # merge duplicate strikes (e.g. a2 == b1)
-    merged = {}
-    for k, q in legs:
-        merged[k] = merged.get(k, 0.0) + q
-    return [(k, q) for k, q in merged.items() if abs(q) > 1e-12]
+    legs, bond = [], 0.0
+    if L < F:                                   # 1[S>L] = 1 - put spread
+        bond += 1.0
+        legs += [("p", a1, +1 / wl), ("p", a2, -1 / wl)]
+    else:                                       # 1[S>L] = call spread
+        legs += [("c", a1, +1 / wl), ("c", a2, -1 / wl)]
+    if U < F:                                   # -1[S>U] = put spread - 1
+        bond -= 1.0
+        legs += [("p", b2, +1 / wu), ("p", b1, -1 / wu)]
+    else:                                       # -1[S>U] = - call spread
+        legs += [("c", b1, -1 / wu), ("c", b2, +1 / wu)]
+    return Replication(legs=legs, bond=bond, edges=(a1, a2, b1, b2))
 
 
-def condor_price(day_df, legs, side="mid"):
-    """Cost to enter the replicating condor. side: 'mid' | 'buy' (pay ask on
-    longs / receive bid on shorts) | 'sell' (the reverse)."""
-    calls = day_df[day_df["option_type"] == "c"].set_index("strike")
-    cost = 0.0
-    for k, q in legs:
-        if k not in calls.index:
+def condor_price(day_df, rep, side="mid"):
+    """Present value of the replication. side: 'mid' | 'buy' (pay the ask on long
+    legs, receive the bid on short legs) | 'sell' (the reverse: proceeds from
+    selling the whole replication). NaN if any leg is missing or has no quote."""
+    DF = float(day_df["DF"].iloc[0])
+    tabs = {t: day_df[day_df["option_type"] == t].drop_duplicates("strike").set_index("strike")
+            for t in ("c", "p")}
+    total = rep.bond * DF
+    for t, K, q in rep.legs:
+        if K not in tabs[t].index:
             return np.nan
-        row = calls.loc[k]
+        row = tabs[t].loc[K]
         if side == "mid":
             px = row["Mid"]
         elif side == "buy":
@@ -71,66 +111,106 @@ def condor_price(day_df, legs, side="mid"):
             px = row["Bid"] if q > 0 else row["Ask"]
         if pd.isna(px):
             return np.nan
-        cost += q * px
-    return float(cost)
+        total += q * px
+    return float(total)
 
 
-def condor_payoff(legs, S_T):
-    """Terminal payoff of the replicating condor at underlying level S_T."""
-    return float(sum(q * max(S_T - k, 0.0) for k, q in legs))
+def condor_payoff(rep, S_T):
+    """Terminal payoff of the replication at index level(s) S_T (scalar or array)."""
+    S = np.asarray(S_T, float)
+    out = np.full(S.shape, rep.bond, dtype=float)
+    for t, K, q in rep.legs:
+        out = out + q * (np.maximum(S - K, 0.0) if t == "c" else np.maximum(K - S, 0.0))
+    return float(out) if out.ndim == 0 else out
 
 
 def binary_payoff(L, U, S_T):
-    return 1.0 if L <= S_T <= U else 0.0
+    S = np.asarray(S_T, float)
+    out = ((S >= L) & (S <= U)).astype(float)
+    return float(out) if out.ndim == 0 else out
 
 
-def basis_risk(legs, L, U, grid=None, reduce="mean"):
-    """Payoff gap between condor and binary over a price grid.
+def basis_risk(rep, L, U, grid, dens):
+    """(E|gap|, E[gap]) of replication payoff minus binary payoff under the density.
 
-    reduce='mean' returns the average |gap| (expected replication error, small -
-    concentrated in the two ramp regions); reduce='max' returns the worst-case
-    gap (~1 at the binary's knife-edge, irreducible)."""
-    if grid is None:
-        grid = np.linspace(L - 400, U + 400, 400)
-    diff = np.abs([condor_payoff(legs, s) - binary_payoff(L, U, s) for s in grid])
-    return float(np.max(diff) if reduce == "max" else np.mean(diff))
+    E|gap| is the expected size of the replication error (the risk left in a
+    hedged position); E[gap] is its signed mean (a systematic pricing bias of the
+    replication). Both are in probability units and use the same day's risk-neutral
+    density, so the weighting reflects where the index can actually settle.
+    """
+    gap = condor_payoff(rep, grid) - binary_payoff(L, U, grid)
+    return float(np.trapz(np.abs(gap) * dens, grid)), float(np.trapz(gap * dens, grid))
 
 
 def analyze_year(chain, kalshi, year, verbose=True):
-    """Cross-market comparison for every tradable bucket-day: Kalshi mid vs
-    replicating-condor mid, plus settlement basis risk at the true year-end close.
-    Returns a per-observation DataFrame."""
-    price = kalshi[year]["price"]
-    by_day = {d: g for d, g in chain[chain["quote"].dt.year == year].groupby("quote")}
-    avail = np.array(sorted(by_day))
-    close = None
+    """Cross-market comparison for every bucket-day where BOTH markets are live and
+    the replication is fully quoted. Returns a per-observation DataFrame.
+
+    A bucket-day is included only if: the option chain for that exact date exists;
+    the Kalshi book is valid (not empty, date not a feed outage); the bucket can be
+    replicated; and every leg has a two-sided option quote (so mid, buy and sell
+    prices are all defined and comparable).
+    """
+    bid, ask = kalshi[year]["bid"] / 100.0, kalshi[year]["ask"] / 100.0
+    outage = set(feed_outage_days(kalshi, year))
     close = config.SPX_YEAR_END_CLOSE[year]
+    lot = config.LOT_SIZE
     rows = []
-    for date in price.index:
-        prior = avail[avail <= np.datetime64(date)]
-        if len(prior) == 0:
+    for date, day_df in chain[chain["quote"].dt.year == year].groupby("quote"):
+        if date not in bid.index or date in outage:
             continue
-        day_df = by_day[pd.Timestamp(prior[-1])]
-        for bucket in price.columns:
-            kp = price.loc[date, bucket]
-            if pd.isna(kp):
+        dens = None
+        for bucket in bid.columns:
+            kb, ka = bid.loc[date, bucket], ask.loc[date, bucket]
+            if not bool(is_valid_book(kb, ka)):
                 continue
             L, U = buckets.bucket_bounds(bucket)
-            legs = replicate_bucket(day_df, L, U)
-            if legs is None:
+            rep = replicate_bucket(day_df, L, U)
+            if rep is None:
                 continue
-            cmid = condor_price(day_df, legs, "mid")
-            if np.isnan(cmid):
+            cm, cbuy, csell = (condor_price(day_df, rep, s) for s in ("mid", "buy", "sell"))
+            if np.isnan(cm) or np.isnan(cbuy) or np.isnan(csell):
                 continue
+            if dens is None:
+                dens = density.bl_density(day_df)
+                if dens is None:
+                    break
+            e_abs, e_sig = basis_risk(rep, L, U, *dens)
+            a1, a2, b1, b2 = rep.edges
+            e_sell_k = kb - cbuy               # sell Kalshi at the bid, buy the replication
+            e_buy_k = csell - ka               # buy Kalshi at the ask, sell the replication
+            direction = "sell_kalshi" if e_sell_k >= e_buy_k else "buy_kalshi"
+            best = max(e_sell_k, e_buy_k)
+            fee = kalshi_fee(kb if direction == "sell_kalshi" else ka, lot) / lot
             rows.append(dict(
-                day=date, bucket=bucket, kalshi=kp / 100.0, condor_mid=cmid,
-                edge=kp / 100.0 - cmid,          # >0: Kalshi rich vs options
-                basis=basis_risk(legs, L, U),
-                settle_binary=binary_payoff(L, U, close),
-                settle_condor=condor_payoff(legs, close)))
+                day=date, bucket=bucket, kalshi=0.5 * (kb + ka), condor_mid=cm,
+                edge=0.5 * (kb + ka) - cm,                 # >0: Kalshi rich vs options
+                exec_edge=best, direction=direction, fee=fee, net_edge=best - fee,
+                option_spread=cbuy - csell, kalshi_spread=ka - kb,
+                basis=e_abs, basis_signed=e_sig, ramp_width=(a2 - a1) + (b2 - b1),
+                plateau_ok=bool(a2 <= 0.5 * (L + U) <= b1),
+                settle_binary=binary_payoff(L, U, close), settle_condor=condor_payoff(rep, close)))
     out = pd.DataFrame(rows)
     if verbose and len(out):
-        print(f"[hedge {year}] {len(out)} obs | mean |edge|={out['edge'].abs().mean():.3f} "
-              f"| mean basis={out['basis'].mean():.3f} "
-              f"| corr(kalshi,condor)={out['kalshi'].corr(out['condor_mid']):.2f}")
+        s = summarize_edges(out)
+        print(f"[hedge {year}] {s['n']} obs | mean |edge| {s['mean_abs_edge']*100:.2f}c | "
+              f"executable>0 {s['share_exec_positive']*100:.1f}% | net of fee>0 {s['share_net_positive']*100:.1f}% | "
+              f"net>basis {s['share_net_beats_basis']*100:.1f}% | option spread median {s['median_option_spread']*100:.0f}c")
     return out
+
+
+def summarize_edges(df):
+    """Headline cross-market statistics for a frame from `analyze_year`."""
+    return dict(
+        n=len(df),
+        mean_abs_edge=float(df["edge"].abs().mean()),
+        median_option_spread=float(df["option_spread"].median()),
+        median_kalshi_spread=float(df["kalshi_spread"].median()),
+        share_exec_positive=float((df["exec_edge"] > 0).mean()),
+        share_net_positive=float((df["net_edge"] > 0).mean()),
+        share_net_beats_basis=float((df["net_edge"] > df["basis"]).mean()),
+        median_net_when_positive=float(df.loc[df["net_edge"] > 0, "net_edge"].median())
+        if (df["net_edge"] > 0).any() else float("nan"),
+        mean_basis=float(df["basis"].mean()),
+        mean_basis_signed=float(df["basis_signed"].mean()),
+    )

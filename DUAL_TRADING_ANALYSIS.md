@@ -114,9 +114,10 @@ help this strategy and would most likely reduce net performance**:
 2. **The hedge would cancel the source of profit.** The P&L comes from the
    Kalshi leg moving (97% of the correction). The options leg barely moves
    (it leads and is already "correct"), so shorting it adds little offsetting
-   P&L — it mainly layers on the OTM option bid/ask spread and ~2–3¢ mean
-   replication basis (up to ~$1 at the binary knife-edge), plus a second venue's
-   execution, margin, and management burden.
+   P&L — it mainly layers on the option bid/ask spread (measured: the replication's
+   round-trip spread is about 26¢ per $1 bucket at the median, against Kalshi's own
+   ~2¢) and about 0.8¢ of expected replication error, plus a second venue's
+   execution, margin, and management burden. See [`HEDGING.md`](HEDGING.md).
 3. **The hedge's theoretical benefit is nearly irrelevant here.** Dual-trading's
    real advantage is converting a forecast bet into a *settlement-guaranteed*
    arbitrage. But settlement is only 3–5% of P&L and the spread half-life is short
@@ -144,9 +145,12 @@ Present **dual-trading as an analyzed alternative and future work** — not mere
 as an unexplored idea, but with the finding that, *for this convergence-driven
 edge*, hedging with options would neutralize already-small directional risk
 while cancelling the profit source and adding basis/execution cost. The
-model-free iron-condor replication (Results §Cross-Market Corroboration) remains
-the right way to *demonstrate* the mispricing exists; it need not become a
-traded leg to do so.
+model-free option replication ([`HEDGING.md`](HEDGING.md)) is a consistency check,
+not evidence of a tradable arbitrage: it shows Kalshi and the options market agree
+to about 3¢ on average with no persistent premium, and that after crossing spreads
+only about 3% of bucket-days show any positive edge (about 1% beyond the
+replication's own error). The strategy's profits come from statistical convergence,
+not from a locked-in hedge.
 
 ## 6. Caveats (state these in the paper)
 - **3-year sample**; ADF and error-correction estimates have wide confidence
@@ -162,6 +166,7 @@ traded leg to do so.
 - Kalshi *following* options does not by itself prove options are a *correct*
   forecast of settlement — only that Kalshi tracks options. The near-zero
   settlement P&L is consistent with, but not proof of, either.
-- Dual-trading costs (OTM option spreads, margin, basis at the knife-edge) are
-  argued from measured basis (~2–3¢ mean) but **not** simulated as a full hedged
-  backtest — that remains the concrete future-work item.
+- Dual-trading costs are measured statically (option round-trip spread, expected
+  replication error, Kalshi fee; see `HEDGING.md`) but **not** simulated as a full
+  hedged backtest with daily marking and margin — that remains the concrete
+  future-work item. Option commissions are not modelled.
