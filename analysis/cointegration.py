@@ -89,19 +89,28 @@ def main():
           f"(negative => Kalshi corrects toward model)")
     print(f"d(model)_next  ~ spread:     coef {bm:+.3f}  t {rm.tvalues[1]:+.1f}  "
           f"(positive => options drift toward Kalshi)")
+    print("  (plain OLS t-stats: bucket-days are serially and cross-sectionally dependent and the")
+    print("   Kalshi mid carries bid-ask bounce, so treat them as an upper bound on significance.)")
     print(f"share of correction by KALSHI leg: {abs(bk)/(abs(bk)+abs(bm))*100:.0f}%")
 
-    # ---- 3. P&L attribution: convergence (MtM path) vs settlement ----
-    print("\n=== 3. P&L attribution (BL, both-side) ===")
+    # ---- 3. P&L attribution: carry vs trading path vs settlement ----
+    # The daily mark-to-market path is NOT all "convergence": it also contains the
+    # Kalshi APY accrued on the account (passive carry, earned by any idle balance),
+    # and it books a contract's drift toward its realised 0/1 outcome before the
+    # settlement step ever arrives. So three pieces are separated here, and the
+    # lead-lag question is answered by the regression in section 2, not by this split.
+    print("\n=== 3. P&L attribution (BL, both-side): carry / trading path / settlement ===")
     _, results, _ = run.full(chain=chain, kalshi=k, verbose=False)
     for y in config.YEARS:
         m = results[(y, "bl", "both")]
         start = m["portfolio_value"].iloc[0]
-        conv = m["portfolio_value"].iloc[-1] - start        # convergence / carry
-        settle = m.attrs["final_value"] - m["portfolio_value"].iloc[-1]
-        print(f"  {y}: convergence {conv:+6.2f}  settlement {settle:+5.2f}  "
-              f"-> settlement is {settle/(abs(conv)+abs(settle)+1e-9)*100:.0f}% of |P&L|")
-
+        carry = m["interest"].iloc[-1]                                  # Kalshi APY credited
+        path = m["portfolio_value"].iloc[-1] - start - carry            # trading, marked to market
+        settle = m.attrs["final_value"] - m["portfolio_value"].iloc[-1]  # terminal settlement step
+        tot = carry + path + settle
+        print(f"  {y}: carry {carry:+6.2f}  trading path {path:+6.2f}  settlement {settle:+5.2f}  "
+              f"= {tot:+6.2f}  | settlement is {abs(settle)/(abs(carry)+abs(path)+abs(settle))*100:.0f}% "
+              f"and carry {abs(carry)/(abs(carry)+abs(path)+abs(settle))*100:.0f}% of |P&L|")
 
 if __name__ == "__main__":
     main()
