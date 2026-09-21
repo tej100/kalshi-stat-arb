@@ -1,8 +1,9 @@
 """Step 7 - portfolio engine for the Kalshi bucket strategy.
 
-Marks open positions to the Kalshi order book each day (long -> exit at bid,
-short -> exit at ask), accrues the 3.75% APY monthly on total portfolio value,
-and settles held buckets at the true year-end SPX close ($1 if in-bucket).
+Marks open positions to the MID of a valid two-sided Kalshi book each day (see
+the marking block in `run` for the fallback chain), accrues the 3.75% APY
+monthly on total portfolio value, and settles held buckets at the true year-end
+SPX close ($1 if in-bucket).
 
 Produces both a mark-to-MARKET series (only fillable prices) and a
 mark-to-MODEL series (positions valued at the model probability), so their

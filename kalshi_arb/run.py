@@ -32,7 +32,8 @@ def full(chain=None, kalshi=None, methods=("bl", "gbm"),
                 # raw signal-log length in `tr`, which re-fires daily while a
                 # mispricing persists -- see backtest.run's docstring.
                 rec = dict(year=year, model=mth.upper(), side=side,
-                           **metrics.summarize(m, chain, year, n_trades=m.attrs["n_executed"]))
+                           **metrics.summarize(m, chain, year, n_trades=m.attrs["n_executed"],
+                                               kalshi=kalshi))
                 rec["n_signals"] = m.attrs["n_signals"]
                 records.append(rec)
     table = metrics.format_table(records)

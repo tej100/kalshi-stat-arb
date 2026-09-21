@@ -32,19 +32,34 @@ def _daily_returns(level: pd.Series) -> pd.Series:
     return r
 
 
-def trading_days(chain, year, index_like) -> pd.DatetimeIndex:
-    """The real trading calendar for `year`, as observed in the option chain,
-    restricted to rows the backtest actually produced.
+def trading_days(chain, year, index_like, kalshi=None) -> pd.DatetimeIndex:
+    """The real trading calendar for `year`: days BOTH markets were available.
 
     Using the chain's quote dates (rather than a weekday mask) excludes market
     holidays without hard-coding a holiday calendar, and guarantees the
-    benchmark has a genuine observation on every sampled row. Note this also
-    ends the 2024 return path at 2024-11-19 where the option feed stops -- past
-    that date there is no benchmark to measure against, so the rows were
-    contributing forward-filled zeros rather than information.
+    benchmark has a genuine observation on every sampled row.
+
+    When `kalshi` is supplied the window is additionally clipped to the span in
+    which the Kalshi market actually existed. This matters for 2022: the Kalshi
+    SPX market did not open until 2022-07-07, so 127 of 240 otherwise-eligible
+    observations (53%) sit before the first possible trade and are structurally
+    flat. Those are not days the strategy declined to trade, they are days it
+    could not exist, and including them drags the mean and (more so) the
+    standard deviation toward zero -- 2022's Sharpe reads 1.53 with them and
+    2.15 without. The clip is the same rule already applied at the other end of
+    the sample, where 2024's path stops with the option feed on 11-19; applying
+    it at both ends makes the evaluation window the intersection of the two
+    data sources, symmetrically.
     """
     q = chain.loc[chain["quote"].dt.year == year, "quote"]
-    return pd.DatetimeIndex(sorted(set(q) & set(index_like)))
+    days = sorted(set(q) & set(index_like))
+    if kalshi is not None and year in kalshi:
+        quoted = kalshi[year]["bid"].notna().any(axis=1)
+        live = quoted[quoted].index
+        if len(live):
+            lo, hi = live.min(), live.max()
+            days = [d for d in days if lo <= d <= hi]
+    return pd.DatetimeIndex(days)
 
 
 def spx_benchmark(chain, year, index_like) -> pd.Series:
@@ -54,7 +69,7 @@ def spx_benchmark(chain, year, index_like) -> pd.Series:
     return s.reindex(index_like, method="ffill").bfill()
 
 
-def summarize(m: pd.DataFrame, chain, year, n_trades=None) -> dict:
+def summarize(m: pd.DataFrame, chain, year, n_trades=None, kalshi=None) -> dict:
     """Compute the performance row for one backtest result `m`."""
     pv = m["portfolio_value"]
     rf_d = config.BENCH_RF / config.TRADING_DAYS
@@ -62,7 +77,7 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None) -> dict:
     # describes the series (see module docstring); the drawdown below stays on
     # the FULL calendar path, since a trough reached over a weekend is a real
     # drawdown the position lived through and is not an annualized quantity.
-    td = trading_days(chain, year, m.index)
+    td = trading_days(chain, year, m.index, kalshi)
     rs = _daily_returns(pv.loc[td])
 
     ann_ret = rs.mean() * config.TRADING_DAYS
@@ -101,7 +116,7 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None) -> dict:
 
 
 def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
-                        mean_block=10, alpha=0.05, seed=0) -> dict:
+                        mean_block=10, alpha=0.05, seed=0, kalshi=None) -> dict:
     """Stationary block-bootstrap confidence interval for the Sharpe ratio.
 
     The point estimate is fragile here and should never be quoted bare: the book
@@ -117,7 +132,7 @@ def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
     while the MAGNITUDE is not.
     """
     rng = np.random.default_rng(seed)
-    td = trading_days(chain, year, m.index)
+    td = trading_days(chain, year, m.index, kalshi)
     r = _daily_returns(m["portfolio_value"].loc[td])
     v = r.values
     n = len(v)
