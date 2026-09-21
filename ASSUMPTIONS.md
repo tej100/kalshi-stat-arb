@@ -18,7 +18,7 @@ Nothing downstream hard-codes an economic constant.
 | One-sided mid | missing side assumed 0 → mid = present/2 | `_mid_price` | paper's stated rule (old code did NOT implement this) |
 | `ONE_SIDED_BSM_TOL` | **$0.50** | config | keep a one-sided quote only if vendor-IV BSM price is within this of the theoretical mid |
 | `MAX_SPREAD_FRAC` | **0.30** | config | drop illiquid two-sided quotes with (ask−bid)/mid > 30% |
-| `MONEYNESS_SIGMA` | **2.0** | config | drop deep ITM/OTM: |moneyness − mean| > 2σ (global) |
+| `MONEYNESS_SIGMA` | **2.0** | config | drop deep ITM/OTM: |moneyness − mean| > 2σ. The mean and σ are computed over the pooled 2022-2024 sample, so 2022 cleaning uses information from later years. Measured sensitivity (BL both-side): pooled, per-year and per-quote-date statistics give Sharpe 1.93/2.85/1.03, 1.92/2.85/1.03 and 1.93/2.86/1.04 with fills within 4, and dropping the filter entirely moves Sharpe by at most 0.23 (2.16/2.73/0.91), so the leakage does not affect results |
 | No-arbitrage bound filter | **exact rule, no parameter** | `_drop_arbitrage_violations` | keep iff `intrinsic ≤ mid ≤ upper`. European bounds on div-adj spot S, DF=e^{−rT}: call ∈ [max(S−K·DF,0), S], put ∈ [max(K·DF−S,0), K·DF]. Drops ~1% stale deep-ITM quotes (all ITM, never enter the OTM density). No tolerance: the bound is a hard law and a strict test vs a 1e-9 epsilon drops identical rows (no float-noise risk) |
 | Moneyness def. | calls K/F, puts 2 − K/F | `_transform` | centers distribution at 1 |
 | `IV_MIN, IV_MAX` | **0.01, 5.0** | config | bisection search bounds (decimal vol) for IV backfill |
@@ -142,7 +142,7 @@ smoother — see the unification note below.
 | `KALSHI_FEE_RATE` | **0.035** | config | fee = ⌈0.035·C·p·(1−p)·100⌉/100 $ per lot. This is the taker rate **in force over the 2022–2024 sample**, which is what the backtest must charge. Kalshi's *current* schedule is 0.07 taker / 0.0175 maker, so limit orders are no longer fee-free; results are robust to the change (BL both-side Sharpe 1.21/2.74/1.09 at 0.07) |
 | `KALSHI_APY` | **3.75%**, monthly | config, `backtest.run` | yield on cash **and** open positions |
 | Settlement | $1 if year-end close ∈ [L,U] | `backtest.run` | `SPX_YEAR_END_CLOSE` = {2022:3839.50, 2023:4769.83, 2024:5881.63} (actual S&P 500 cash closes) |
-| Marking | **mid of a valid book**; empty book (bid ≤ `MARK_MIN_BID`=2c & ask ≥ `MARK_MAX_ASK`=98c) or missing → last valid mid → model | `_valid_book`, `backtest.run` | an empty book (bid 0 / ask 100 when SPX has left a bucket) is a phantom price, NOT a liquidation value; marking shorts there caused the 2024 −33% artifact |
+| Marking | **liquidation-side**: a long is marked at the bid, a short at the ask, of the last valid book; a book that is missing, empty (bid ≤ `MARK_MIN_BID`=2c & ask ≥ `MARK_MAX_ASK`=98c) or on a feed-outage day falls back to the last valid book, then the model | `kalshi_pmf.is_valid_book`, `feed_outage_days`, `backtest.run` | a position can only be exited at the side it would trade against, so mid overstated open positions by half a spread; an empty or outage book quotes phantom prices (2024-11-16..21 asks near 100c on mutually exclusive buckets) that once produced the whole reported 2024 drawdown |
 | Sub-strategies | both / buy-only / sell-only | `signals.generate(side=...)` | isolates directional performance |
 | **Exit rule / holding period** | **none fixed** — hold until the OPPOSITE entry test fires on that bucket, or year-end settlement | `signals.generate` (re-evaluated daily), `backtest.run` | there is no take-profit, stop-loss, or time-based exit; observed holding periods in the actual backtest range from 1 day to 6+ months (same bucket, 2023) |
 | **`n_trades` reporting** | = **executed fills** (`backtest.run().attrs["n_executed"]`), NOT the raw signal-log length | `run.full`, `backtest.run` | `signals.generate()` re-fires a signal every day a mispricing persists even while already at the 1-lot cap; those redundant rows are correctly suppressed by execution but were being mis-reported as trade count (found while tracing a real position: 137 raw signals vs 8 actual fills for one bucket). Raw count still available as `n_signals`. |
@@ -168,15 +168,22 @@ smoother — see the unification note below.
 
 | Parameter | Value | Where | Rationale |
 |---|---|---|---|
-| `TRADING_DAYS` | **252** | config | annualization factor — **same for strategy and benchmark** (old code was inconsistent) |
-| `BENCH_RF` | **3%** annual | config | risk-free for Sharpe/alpha; rf_daily = 3%/252 |
-| Benchmark | SPX raw spot, ffill to backtest calendar | `spx_benchmark` | index buy-and-hold |
-| Returns | simple daily pct_change, drop ±inf | `_daily_returns` | |
-| Sharpe | (annReturn − rf)/annVol | `summarize` | |
-| Max drawdown | on **strategy** PV (not benchmark) | `summarize` | old code computed DD on SPX by mistake |
-| `total_return` | (final incl. settlement)/start − 1 | `summarize` | end-to-end realized result INCLUDING year-end payoff (ann_return/Sharpe are pre-settlement path metrics) |
-| Alpha/Beta | OLS of daily excess strat vs excess SPX; alpha reported **daily** | `summarize` | |
+| `TRADING_DAYS` | **252** | config | annualization factor, same for strategy and benchmark |
+| Return calendar | **trading days**: chain quote dates, clipped to the span Kalshi actually quoted | `trading_days` | the backtest ledger is calendar-daily (Kalshi trades 24/7) but the x252 factor describes trading days; sampling here also gives the SPX benchmark a real observation on every row instead of forward-filled zeros, and drops the 2022 days before the Kalshi market existed |
+| `BENCH_RF` | **= `KALSHI_APY`** (3.75%) | config | idle capital in a Kalshi account earns the APY, so that is the risk-free hurdle; rf_daily = APY/252 |
+| Benchmark | SPX raw spot (price index) on the trading calendar | `spx_benchmark` | buy-and-hold; excludes dividends, which moves alpha by beta x ~1.5%/yr (under 0.1 pt here) |
+| Returns | simple daily pct_change, drop ±inf | `_daily_returns` | annualised return is arithmetic (mean x 252); the geometric figure differs by about sigma^2/2, under 0.1 pt here |
+| Sharpe | (annReturn − rf)/annVol | `summarize` | point estimate only; see the two rows below |
+| Sharpe interval | stationary block bootstrap, 10,000 resamples, mean block 10 days | `sharpe_bootstrap_ci` | geometric block length preserves short-run dependence; intervals are 3-5 Sharpe units wide, so never quote the point estimate alone |
+| Sharpe sampling check | non-overlapping 5- and 20-day returns, averaged over all starting phases | `sharpe_at_frequency` | the sqrt(252) scaling assumes uncorrelated daily returns (lag-1 ranges -0.39 to +0.07). Magnitude moves with frequency (e.g. BL 2023: 2.85 daily, 2.32 at 5 days, 1.71 at 20) but the sign is identical at all three in 6 of 6 model-years |
+| Max drawdown | on **strategy** PV, full calendar path | `summarize` | a weekend trough is a real drawdown; not an annualised quantity |
+| `total_return` | (final incl. settlement)/start − 1 | `summarize` | end-to-end result INCLUDING the year-end payoff; for 2022 it covers only the ~6 months Kalshi existed, so it is not comparable to a full-year figure |
+| `ann_return_ex_apy` | annualised return of PV minus accrued interest | `summarize` | attribution only: how much of the raw return is passive platform carry (about 3%/yr). There is deliberately no separate ex-APY Sharpe, since with rf = APY the headline Sharpe already excludes the carry |
+| Alpha / beta | OLS of daily excess strategy return on excess SPX return | `summarize` | `alpha_ann` = daily alpha x 252; **t-statistics are Newey-West** (`_newey_west_t`), because daily returns are autocorrelated |
+| Newey-West lag | floor(4·(n/100)^(2/9)), i.e. 4 for a year of data | `_newey_west_t` | the standard data-derived rule, not a chosen constant; verified against statsmodels to 1e-15 |
 | Model ρ | corr of mark-to-market vs mark-to-model daily returns | `summarize` | executability of the ideal strategy |
+
+Alpha is statistically distinguishable from zero in only one of six model-years (BL 2023, t = 2.59); beta is small everywhere (|β| ≤ 0.04), and although BL 2023's is nominally significant (t = 3.2) it is economically negligible.
 
 ---
 

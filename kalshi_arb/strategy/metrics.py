@@ -32,6 +32,35 @@ def _daily_returns(level: pd.Series) -> pd.Series:
     return r
 
 
+def _newey_west_t(y, x):
+    """OLS of y on [1, x] with Newey-West (Bartlett) standard errors.
+
+    Returns (intercept, slope, t_intercept, t_slope). Daily strategy returns here
+    are autocorrelated (thin books bounce and revert; lag-1 ranges from -0.39 to
+    +0.07 across runs), so plain OLS standard errors misstate significance.
+
+    The truncation lag is the Newey-West (1994) rule of thumb floor(4*(n/100)^(2/9)),
+    which is a function of the sample size rather than a chosen constant (4 for
+    the ~240 daily observations in a year).
+    """
+    y = np.asarray(y, float); x = np.asarray(x, float)
+    n = len(y)
+    X = np.column_stack([np.ones(n), x])
+    XtX_inv = np.linalg.inv(X.T @ X)
+    beta = XtX_inv @ X.T @ y
+    e = y - X @ beta
+    L = int(np.floor(4 * (n / 100.0) ** (2.0 / 9.0)))
+    u = X * e[:, None]
+    S = u.T @ u
+    for l in range(1, L + 1):
+        w = 1.0 - l / (L + 1.0)
+        G = u[l:].T @ u[:-l]
+        S += w * (G + G.T)
+    cov = XtX_inv @ S @ XtX_inv
+    se = np.sqrt(np.diag(cov))
+    return beta[0], beta[1], beta[0] / se[0], beta[1] / se[1]
+
+
 def trading_days(chain, year, index_like, kalshi=None) -> pd.DatetimeIndex:
     """The real trading calendar for `year`: days BOTH markets were available.
 
@@ -88,12 +117,14 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None, kalshi=None) -> dict:
     spx = spx_benchmark(chain, year, td)
     rm = _daily_returns(spx)
     idx = rs.index.intersection(rm.index)
-    beta = alpha = np.nan
+    beta = alpha = alpha_t = beta_t = np.nan
     if len(idx) > 2:
         a, b = rs.loc[idx] - rf_d, rm.loc[idx] - rf_d
         var = b.var()
         beta = a.cov(b) / var if var > 0 else np.nan
         alpha = a.mean() - beta * b.mean()            # daily alpha
+        if len(idx) > 30 and var > 0:
+            _, _, alpha_t, beta_t = _newey_west_t(a.values, b.values)
 
     rmod = _daily_returns(m["model_value"].loc[td])
     j = rs.index.intersection(rmod.index)
@@ -124,7 +155,8 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None, kalshi=None) -> dict:
     return dict(
         ann_return=ann_ret, ann_vol=ann_vol, sharpe=sharpe, max_dd=max_dd,
         ann_return_ex_apy=ann_ret_ex,
-        alpha_daily=alpha, beta=beta, model_rho=model_rho,
+        alpha_daily=alpha, alpha_ann=alpha * config.TRADING_DAYS, alpha_t=alpha_t,
+        beta=beta, beta_t=beta_t, model_rho=model_rho,
         settlement=m.attrs.get("settlement", np.nan),
         final_value=final_value, total_return=total_return,
         n_trades=n_trades,
@@ -172,13 +204,41 @@ def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
                 n=n, kurtosis=float(r.kurt()))
 
 
+def sharpe_at_frequency(m: pd.DataFrame, chain, year, step: int, kalshi=None) -> float:
+    """Sharpe from non-overlapping `step`-trading-day returns, annualised by 252/step.
+
+    The daily Sharpe scales by sqrt(252), which assumes daily returns are serially
+    uncorrelated. They are not (thin books bounce and revert), so a Sharpe read
+    from weekly or four-weekly returns is a check that the conclusion does not
+    hinge on that assumption. Which day the non-overlapping grid starts on would
+    otherwise be an arbitrary choice, so the result is averaged over all `step`
+    possible starting phases.
+    """
+    if step <= 1:
+        raise ValueError("step must be > 1 (use `summarize` for the daily Sharpe)")
+    td = trading_days(chain, year, m.index, kalshi)
+    pv = m["portfolio_value"].loc[td]
+    per = config.TRADING_DAYS / step
+    out = []
+    for off in range(step):
+        r = _daily_returns(pv.iloc[off::step])
+        if len(r) >= 5 and r.std() > 0:
+            out.append((r.mean() * per - config.BENCH_RF) / (r.std() * np.sqrt(per)))
+    return float(np.mean(out)) if out else np.nan
+
+
 def format_table(records: list[dict]) -> pd.DataFrame:
     """records: list of dicts with year, model, side + summarize() output."""
     df = pd.DataFrame(records)
-    pct = ["ann_return", "ann_vol", "max_dd", "alpha_daily", "total_return",
-           "ann_return_ex_apy"]
+    pct = ["ann_return", "ann_vol", "max_dd", "total_return", "ann_return_ex_apy",
+           "alpha_ann"]
     for c in pct:
         df[c] = (df[c] * 100).round(2)
+    # alpha_daily is a per-day PERCENT of ~0.01-0.06; two decimals would round most
+    # of the information away (0.01%/day is 2.5%/yr), so keep four.
+    df["alpha_daily"] = (df["alpha_daily"] * 100).round(4)
+    df["alpha_t"] = df["alpha_t"].round(2)
+    df["beta_t"] = df["beta_t"].round(2)
     df["sharpe"] = df["sharpe"].round(2)
     df["beta"] = df["beta"].round(3)
     df["model_rho"] = df["model_rho"].round(2)

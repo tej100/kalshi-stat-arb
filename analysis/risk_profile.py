@@ -13,19 +13,26 @@ import numpy as np, pandas as pd
 from kalshi_arb import pipeline, config
 from kalshi_arb.extract import kalshi as ksrc
 from kalshi_arb.transform import density
-from kalshi_arb.strategy import signals, backtest, diagnostics
+from kalshi_arb.strategy import signals, backtest, diagnostics, metrics
 
 
 def main():
     chain = pipeline.build_chain(verbose=False)
     k = ksrc.load_kalshi()
-    risk_rows, ep_rows = [], []
+    risk_rows, ep_rows, freq_rows = [], [], []
     for method in ("bl", "gbm"):
         pmf = density.build_pmf_table(chain, k, method=method)
         for y in config.YEARS:
             tr = signals.generate(pmf, k, y, side="both")
             m = backtest.run(tr, pmf, k, y)
             risk_rows.append(dict(model=method.upper(), year=y, **diagnostics.risk_summary(m)))
+            td = metrics.trading_days(chain, y, m.index, k)
+            r1 = m["portfolio_value"].loc[td].pct_change().dropna()
+            freq_rows.append(dict(model=method.upper(), year=y,
+                                  sharpe_daily=metrics.summarize(m, chain, y, kalshi=k)["sharpe"],
+                                  sharpe_5day=metrics.sharpe_at_frequency(m, chain, y, 5, k),
+                                  sharpe_20day=metrics.sharpe_at_frequency(m, chain, y, 20, k),
+                                  lag1_autocorr=r1.autocorr(1)))
             e = diagnostics.episodes(m, y)
             e.insert(0, "model", method.upper())
             ep_rows.append(e)
@@ -63,9 +70,18 @@ def main():
     print("  NOTE: the settled positions' win rate is SELECTED by the exit rule -- they are the ones")
     print("  the model kept agreeing with -- so it is not a property of the strategy as a whole.")
 
+    F = pd.DataFrame(freq_rows)
+    print("\n=== 4. Does the Sharpe depend on the sampling frequency? ===")
+    print("  The daily Sharpe scales by sqrt(252), assuming uncorrelated daily returns; they are not.")
+    print("  5-/20-day figures use non-overlapping returns averaged over every starting phase.")
+    print(F.round(2).to_string(index=False))
+    same = ((np.sign(F.sharpe_daily) == np.sign(F.sharpe_5day)) & (np.sign(F.sharpe_daily) == np.sign(F.sharpe_20day)))
+    print(f"  sign identical at all three frequencies in {int(same.sum())} of {len(F)} model-years.")
+
     config.ARTIFACT_DIR.mkdir(exist_ok=True)
     R.to_csv(config.ARTIFACT_DIR / "risk_profile.csv", index=False)
     E.to_csv(config.ARTIFACT_DIR / "position_episodes.csv", index=False)
+    F.to_csv(config.ARTIFACT_DIR / "sharpe_by_frequency.csv", index=False)
 
 
 if __name__ == "__main__":

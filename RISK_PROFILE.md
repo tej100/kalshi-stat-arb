@@ -77,6 +77,35 @@ closing anything) drops 2022 BL total return from 13.2% to 0.25%. For GBM it is 
 Note also that 17 of the 34 losing BL exits would have ended profitable if held, so the
 rule is not perfect, only net-positive.
 
+## 4. How much does the Sharpe depend on how it is measured?
+
+The daily Sharpe scales by the square root of 252, which assumes daily returns are
+uncorrelated. Here they are not (lag-1 autocorrelation runs from −0.39 to +0.07:
+thin order books bounce and revert), so the same P&L gives different Sharpe ratios at
+different sampling frequencies. The 5- and 20-day figures below use non-overlapping
+returns, averaged over every possible starting phase so no arbitrary start day is
+chosen.
+
+| model | year | daily | 5-day | 20-day | lag-1 autocorr |
+|---|---|---|---|---|---|
+| BL | 2022 | 1.93 | 2.85 | 3.72 | −0.18 |
+| BL | 2023 | 2.85 | 2.32 | 1.71 | +0.07 |
+| BL | 2024 | 1.03 | 1.16 | 1.87 | −0.04 |
+| GBM | 2022 | 2.35 | 3.49 | 3.22 | −0.12 |
+| GBM | 2023 | 1.70 | 1.15 | 0.80 | −0.11 |
+| GBM | 2024 | −0.59 | −1.30 | −1.85 | −0.39 |
+
+**The sign is identical at all three frequencies in 6 of 6 model-years; the magnitude
+is not.** BL is positive at every frequency and GBM 2024 is negative at every
+frequency. The 20-day figures rest on only 6-12 observations each, so they are noisy;
+the point is that the conclusion does not hinge on the daily scaling, not that any one
+number is right. This is one more reason to quote a Sharpe only with its bootstrap
+interval.
+
+Alpha against SPX is statistically distinguishable from zero in one of six
+model-years (BL 2023: annualised 10.2%, Newey-West t = 2.59); the other five have
+|t| below 2.1. Beta is at most 0.04 in absolute value throughout.
+
 ## Limits
 
 Three years and 40–120 positions per model: these are descriptions of what happened,
