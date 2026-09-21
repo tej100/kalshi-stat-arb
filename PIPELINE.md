@@ -106,7 +106,13 @@ class RAW,KAL,CLEAN,LSQ,PRICED,CURVE,MPMF,KPMF,TR,PV,OUT art;
   dollars for the whole lot (which is what `backtest.run` spends); `entry_hurdle`
   divides by the lot and doubles it for the round trip. Mixing the two units was a
   real bug (fixed Phase 7) that demanded 8× the break-even edge.
-- **The backtest index is a CALENDAR-day index** (365/366 rows incl. ~105 weekend
-  days), because Kalshi trades 24/7. New signals fire only on the ~240 weekdays with
-  a same-day option chain, but positions mark on every calendar row — so the ×252
-  annualization in `metrics` is under review (Phase 9).
+- **The backtest LEDGER is a calendar-day index; the return STATISTICS are not.**
+  The ledger spans 365/366 rows (Kalshi trades 24/7) so positions mark every day and
+  drawdown captures weekend troughs. `metrics` then samples returns on the trading
+  calendar taken from the option chain's own quote dates, which is what the ×252
+  factor describes and what gives the benchmark a real observation on every row
+  (fixed Phase 6b). This split is deliberate, not a discrepancy.
+- **A day whose quote set is internally incoherent is skipped entirely.**
+  `kalshi_pmf.feed_outage_days` flags dates where ≥2 mutually exclusive buckets quote
+  an ask ≥ 90c; `signals.generate` opens nothing and `backtest.run` marks through the
+  last-valid-mid fallback (2024-11-16..21 only).
