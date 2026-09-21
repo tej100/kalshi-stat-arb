@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from .. import config
-from ..transform.kalshi_pmf import feed_outage_days
+from ..transform.kalshi_pmf import feed_outage_days, is_valid_book
 
 
 def kalshi_fee(price, contracts):
@@ -71,6 +71,8 @@ def generate(pmf_table, kalshi, year, side="both", lot=None):
             if pd.isna(mp) or pd.isna(kb) or pd.isna(ka):
                 continue
             kb, ka = kb / 100.0, ka / 100.0
+            if not is_valid_book(kb, ka):      # same validity rule as marking and hedging
+                continue
             if side in ("both", "buy") and mp > ka + entry_hurdle(ka, lot):
                 rows.append(dict(day=day, bucket=bucket, qty=lot, price=ka,
                                  fee=kalshi_fee(ka, lot), model_p=mp))

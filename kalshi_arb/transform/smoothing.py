@@ -37,14 +37,26 @@ def fit_daily_smile(day_df, method=None):
 
 
 def eval_smile(smoother, strikes):
-    """Evaluate a fitted daily smile at arbitrary strikes, with two data-derived
-    bounds (no tunable constant):
-      * strikes clamped to [k_min, k_max]  -> flat extrapolation in the wings;
-      * IV clamped to the observed [iv_min, iv_max] envelope -> a smoothed IV can
-        never leave the range of real market IVs (guards against any fit
-        overshooting into a sparse far-OTM strike gap).
+    """Evaluate a fitted daily smile at arbitrary strikes.
+
+    Strikes are always clamped to the observed [k_min, k_max] (flat wings). Beyond
+    that, the bound depends on what kind of smoother it is:
+
+      * NON-PARAMETRIC (spline, poly, PCHIP, LOWESS): IV is clamped to the observed
+        [iv_min, iv_max]. These forms can overshoot into a sparse far-OTM strike gap
+        (an unclamped LSQ spline reached 913% vol), so the envelope is a real guard.
+      * PARAMETRIC (SABR, SVI): only a positivity floor (`config.IV_MIN`). These are
+        smooth few-parameter forms that cannot oscillate, and a least-squares fit
+        legitimately dips below the lowest OBSERVED IV between data points. Clamping
+        it there is harmful: on 66% of days the envelope bound inside the observed
+        strike range, and every such clamp is a kink in the smile, i.e. a spike in
+        the second derivative that Breeden-Litzenberger turns into a spurious
+        cliff and extra peaks in the density (2.75 peaks vs 1.82 on affected days;
+        bucket probabilities off by up to 15 cents).
     """
     iv = smoother(np.asarray(strikes, float), clamp_wings=True)
+    if smoother.parametric:
+        return np.maximum(iv, config.IV_MIN)
     return np.clip(iv, smoother.iv_min, smoother.iv_max)
 
 

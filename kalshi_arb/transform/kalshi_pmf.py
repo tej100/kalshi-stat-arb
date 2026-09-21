@@ -37,26 +37,28 @@ def is_valid_book(bid, ask):
     100 - no_bid). Measured, bid + ask has a median of 13-16c and lands in
     99..101 for only 0.0-2.3% of quotes, so the labels are correct.
 
-    NOTE (known gap, deliberate): this is a CORNER test (bid pinned at the floor
-    AND ask pinned at the ceiling), not a spread test, so it catches an ask of
-    98c but not 97c. That matters because near-ceiling asks are a BOOK-OUTAGE
-    artifact, not real pricing: in 2024 the 4800-4999.99 bucket quotes an ask of
-    2-3c through 11/12, then 100, 99, 100, 98, 97 on 11/16-11/21, then snaps back
-    to 2c on 11/22, with no trade in between -- one contiguous outage whose tail
-    happens to dip below the 98c threshold. On 11/16 every one of the 13 buckets
-    reads 0/100 while the last-trade column still shows sane 1-13c values, which
-    is the cleanest demonstration that the quote side, not the trade side, is
-    what degrades. Incidence is small (2 marks in 2024, 0 in 2022-23), so this
-    is documented rather than patched with a fresh cutoff: the principled repair
-    is a marking policy that cannot be fooled by a one-sided book (mark to the
-    side a position would actually liquidate against), which is a Phase 8
-    decision. See PROJECT_CONTEXT.md section 12.
+    A book is rejected if any of three things holds:
+      1. a side is missing;
+      2. it is EMPTY: bid pinned at the floor and ask at the ceiling (a corner test);
+      3. its spread is at least `config.MAX_BOOK_SPREAD` (half the probability
+         range): one side is then a stale or unfilled offer, not a price.
+
+    (1)-(2) alone let stray quotes through. Near-ceiling asks are a quote-feed
+    outage artifact, not pricing: in 2024 the 4800-4999.99 bucket quotes an ask of
+    2-3c through 11/12, then 100, 99, 100, 98, 97 on 11/16-11/21, then 2c again on
+    11/22 with no trade between (the whole-day version is handled by
+    `feed_outage_days`). Rule (3) covers the isolated version -- one dead bucket
+    quoting an ask of 85c against a bid of 0 on 2024-11-23, or bid 13c / ask 99c
+    on a live bucket on 2024-06-14/15 -- which marking a short at the ask turned
+    into phantom losses. The 0.50 cutoff is not fitted; see `config.MAX_BOOK_SPREAD`.
     """
     b = np.asarray(bid, dtype=float)
     a = np.asarray(ask, dtype=float)
     quoted = ~(np.isnan(b) | np.isnan(a))
     degenerate = (b <= config.MARK_MIN_BID) & (a >= config.MARK_MAX_ASK)
-    return quoted & ~degenerate
+    with np.errstate(invalid="ignore"):
+        too_wide = (a - b) >= config.MAX_BOOK_SPREAD
+    return quoted & ~degenerate & ~too_wide
 
 
 def feed_outage_days(kalshi: dict, year: int) -> pd.DatetimeIndex:

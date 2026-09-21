@@ -73,6 +73,17 @@ MAX_LOTS_PER_BUCKET = 1      # no pyramiding: cap open exposure per bucket to N 
 # (degenerate) market whose quotes are phantom and must not mark a position.
 MARK_MIN_BID = 0.02
 MARK_MAX_ASK = 0.98
+# A book whose spread is at least this wide says nothing about the price within
+# HALF of the whole 0-1 probability range, so it is not a market: one side is an
+# unfilled or stale offer. Not fitted -- the distribution of quoted spreads has a
+# gap: across 2022-2024 (outage days excluded) every legitimate spread is <= 44c
+# (2022 and 2023 both peak at exactly 44c), and the only cells above it are three
+# artifacts at 85-86c (a bid 13c / ask 99c glitch on a live bucket on 2024-06-14/15,
+# and an ask of 85c against a bid of 0 on a dead bucket on 2024-11-23). Any cutoff
+# from 45c to 84c gives identical results; 0.50 is the natural midpoint of the
+# range. Without it, marking a short at that stray ask produced a one-day $6.80
+# phantom loss (the entire 2024 BL max drawdown).
+MAX_BOOK_SPREAD = 0.50
 # Day-level quote-feed outage detector. Kalshi's own API declares these events
 # `mutually_exclusive: true`, so at most ONE bucket can be highly probable: two
 # outcomes cannot both have probability >= 0.90 (that sums to 180%). Even
@@ -100,7 +111,7 @@ KALSHI_FEE_RATE = 0.035      # fee = ceil(rate * contracts * p * (1-p)) cents
 # higher costs -- see PAPER_CHANGES.md. Kept at 0.035 because the backtest must
 # price the fees the strategy would actually have paid in-sample. With the
 # per-contract hurdle below, results are not fragile to this: BL both-side
-# Sharpe is 1.93/2.86/1.04 at 0.035 versus 1.46/2.41/0.76 at 0.07.
+# Sharpe is 1.99/2.25/1.08 at 0.035 versus 1.53/1.92/0.81 at 0.07.
 # Round trips per position, used to size the entry hurdle in signals.generate.
 # NOT a tunable: Kalshi charges the taker fee on BOTH fills of a market-order
 # round trip (open and close), so a signal must clear two fees to be worth

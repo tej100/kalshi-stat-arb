@@ -43,6 +43,7 @@ def fit_iv_spline(strikes, iv, n_knots=None):
 # --------------------------------------------------------------------------- #
 class Smoother:
     name = "base"
+    parametric = False      # True: a smooth few-parameter form defined at every strike (SABR, SVI)
     def fit(self, K, iv, F, T):
         self.K = np.asarray(K, float); self.iv = np.asarray(iv, float)
         self.F = float(F); self.T = float(T)
@@ -120,6 +121,7 @@ def _sabr_vol(K, F, T, alpha, beta, rho, nu):
 
 class SABR(Smoother):
     name = "sabr"
+    parametric = True
     def __init__(self, beta=0.5): self.beta = beta
     def _fit(self):
         F, T, b = self.F, self.T, self.beta
@@ -142,6 +144,7 @@ class SABR(Smoother):
 
 class SVI(Smoother):
     name = "svi"
+    parametric = True
     def _fit(self):
         k = np.log(self.K / self.F); w = (self.iv ** 2) * self.T
         def resid(p):
