@@ -73,6 +73,25 @@ MAX_LOTS_PER_BUCKET = 1      # no pyramiding: cap open exposure per bucket to N 
 # (degenerate) market whose quotes are phantom and must not mark a position.
 MARK_MIN_BID = 0.02
 MARK_MAX_ASK = 0.98
+# Day-level quote-feed outage detector. Kalshi's own API declares these events
+# `mutually_exclusive: true`, so at most ONE bucket can be highly probable: two
+# outcomes cannot both have probability >= 0.90 (that sums to 180%). Even
+# allowing a generous 10c spread, two genuine offers at >= 0.90 would imply two
+# true probabilities >= 0.80, summing to 160% -- impossible. So two or more
+# buckets quoting an ask this high on the same day is not a market, it is an
+# empty offer side being reported at the ceiling.
+#
+# NOT fitted: the flagged set is IDENTICAL for any level from 0.70 to 0.97
+# (exactly the 2024-11-16..21 outage, nothing else in three years), so 0.90 sits
+# mid-plateau. Going below ~0.60 starts catching genuine near-year-end races
+# where two adjacent buckets are both live (e.g. 2022-12-23, quoted 22/66 and
+# 34/70); going to 0.98 misses 2024-11-21, whose 97c asks produce the whole of
+# the reported 2024 drawdown. Deliberately a LEVEL test, not a sum-of-asks test:
+# summed asks conflate a merely WIDE market (2022-07-07 sums to 2.81 with every
+# ask <= 25c -- lazy market-maker offers, but real) with a BROKEN one.
+# See transform/kalshi_pmf.feed_outage_days.
+OUTAGE_ASK_LEVEL = 0.90
+OUTAGE_MIN_BUCKETS = 2
 START_CASH = 200.0           # initial cash ($)
 KALSHI_FEE_RATE = 0.035      # fee = ceil(rate * contracts * p * (1-p)) cents
 KALSHI_APY = 0.0375          # yield on cash + open positions, accrued monthly

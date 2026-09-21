@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from .. import config
 from ..transform import buckets
-from ..transform.kalshi_pmf import is_valid_book
+from ..transform.kalshi_pmf import is_valid_book, feed_outage_days
 
 
 def _apply_trade(positions, bucket, qty, price):
@@ -54,6 +54,11 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
     dates = pmf.index
     trades_by_day = {d: g for d, g in trades.groupby("day")} if len(trades) else {}
 
+    # Dates whose whole quote set is internally incoherent (see
+    # kalshi_pmf.feed_outage_days). Their books are treated exactly like
+    # degenerate ones: fall back to the last valid mid, then the model.
+    outage = set(feed_outage_days(kalshi, year))
+
     cash = start_cash
     positions = {}
     last_mark = {}
@@ -85,7 +90,7 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
             kb = bid.loc[d, b] / 100.0 if (d in bid.index and not pd.isna(bid.loc[d, b])) else np.nan
             ka = ask.loc[d, b] / 100.0 if (d in ask.index and not pd.isna(ask.loc[d, b])) else np.nan
             mp = pmf.loc[d, b] if (d in pmf.index and not pd.isna(pmf.loc[d, b])) else np.nan
-            if is_valid_book(kb, ka):
+            if d not in outage and is_valid_book(kb, ka):
                 m = 0.5 * (kb + ka)
                 last_mark[b] = m
             elif b in last_mark:

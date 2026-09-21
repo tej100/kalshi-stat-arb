@@ -59,6 +59,39 @@ def is_valid_book(bid, ask):
     return quoted & ~degenerate
 
 
+def feed_outage_days(kalshi: dict, year: int) -> pd.DatetimeIndex:
+    """Dates whose Kalshi quotes are internally incoherent and must not be used.
+
+    Kalshi's API declares these events `mutually_exclusive: true`, so at most ONE
+    bucket can be highly probable. Two or more buckets quoting an ask at or above
+    `config.OUTAGE_ASK_LEVEL` therefore cannot both be genuine offers -- it would
+    imply two outcomes whose probabilities sum well past 100% -- and marks an
+    empty offer side being reported at the ceiling.
+
+    This catches an outage the per-cell `is_valid_book` corner test cannot. On
+    2024-11-16 all 13 buckets read bid 0 / ask 100 while the last-trade column
+    still showed sane 1-13c values, and the outage decays through 11/21 with
+    asks of 97-99c that slip under the 98c per-cell threshold. Those marks are
+    not cosmetic: two 8-lot shorts marked at 49.5c instead of ~1c on 2024-11-21
+    produce the whole of the reported 2024 maximum drawdown (-4.35% with them,
+    -1.58% without).
+
+    The detector is a LEVEL test rather than a sum-of-asks test on purpose: a
+    summed-ask bound conflates a merely WIDE market with a broken one. On
+    2022-07-07 the asks sum to 2.81 -- above any reasonable coherence bound --
+    yet every individual ask is <= 25c against 0-1c bids, which is a real if
+    lazy market-maker ladder on the first day the market existed, not a feed
+    failure. The level test leaves such days alone.
+
+    Flagged days are treated exactly like a degenerate book -- positions fall
+    back to the last valid mid, then to the model -- rather than being dropped,
+    so the mark-to-market path stays continuous.
+    """
+    ask = kalshi[year]["ask"] / 100.0
+    n_high = (ask >= config.OUTAGE_ASK_LEVEL).sum(axis=1)
+    return pd.DatetimeIndex(n_high.index[n_high >= config.OUTAGE_MIN_BUCKETS])
+
+
 def market_pmf(kalshi: dict, year: int) -> pd.DataFrame:
     """date x bucket table of Kalshi mid-implied probabilities for one year.
 
@@ -75,4 +108,6 @@ def market_pmf(kalshi: dict, year: int) -> pd.DataFrame:
     bid = kalshi[year]["bid"] / 100.0
     ask = kalshi[year]["ask"] / 100.0
     mid = 0.5 * (bid + ask)
-    return mid.where(is_valid_book(bid, ask))
+    out = mid.where(is_valid_book(bid, ask))
+    out.loc[out.index.intersection(feed_outage_days(kalshi, year))] = np.nan
+    return out

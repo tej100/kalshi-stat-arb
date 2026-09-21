@@ -8,6 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from .. import config
+from ..transform.kalshi_pmf import feed_outage_days
 
 
 def kalshi_fee(price, contracts):
@@ -28,9 +29,12 @@ def generate(pmf_table, kalshi, year, side="both", lot=None):
     pmf = pmf_table[year]
     bid = kalshi[year]["bid"]
     ask = kalshi[year]["ask"]
+    # A day whose whole quote set is internally incoherent is a broken feed, not
+    # a tradable market: no order would be placed against those prices.
+    outage = set(feed_outage_days(kalshi, year))
     rows = []
     for day in pmf.index:
-        if day not in bid.index or day not in ask.index:
+        if day not in bid.index or day not in ask.index or day in outage:
             continue
         for bucket in pmf.columns:
             mp = pmf.loc[day, bucket]

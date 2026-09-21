@@ -5,6 +5,26 @@
 rebuild that pickle. Fetching is never triggered on import - call it explicitly
 or run this module as a script. The API key is loaded lazily from the gitignored
 `api_key.py` so importing this module never requires credentials.
+
+!! `kalshi_data.pkl` CANNOT BE REGENERATED - TREAT IT AS PRIMARY SOURCE DATA !!
+Verified 2026-09-21: Kalshi no longer serves the settled 2022-2024 markets.
+`GET /events/{ticker}` returns the event with an EMPTY markets list, and every
+one of the 39 stored market tickers 404s on `GET /markets/{ticker}` (0/13 in
+each year), so the candlesticks behind this pickle are unreachable. The API,
+the credentials and the candlestick endpoint are all fine - live markets under
+the current series return data normally - so this is retention, not breakage.
+The pickle (written 2025-04-22) is the only surviving copy of this dataset;
+back it up, and do not overwrite it with a partial re-fetch.
+
+Consequence: the 2024-11-16..21 quote-feed outage documented in
+`transform/kalshi_pmf.feed_outage_days` can never be repaired at source, which
+is why it is handled in code.
+
+Note also that the product has since been renamed and restructured (the current
+series uses tickers like `KXINXY-26DEC31H1600-T4000`, threshold-style, versus
+the `INXY-22DEC30-B3300` bucket style stored here), so EVENT_TICKERS and
+`_rename_buckets` below describe the historical schema and would need rework to
+target current markets.
 """
 from __future__ import annotations
 import base64
