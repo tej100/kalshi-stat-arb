@@ -16,7 +16,7 @@ ARTIFACT_DIR = ROOT / "artifacts"           # generated outputs (created on dema
 
 # ---- cleaning thresholds ---------------------------------------------------
 MAX_SPREAD_FRAC = 0.30       # drop quote if (ask-bid)/mid exceeds this
-MONEYNESS_SIGMA = 2.0        # drop quotes > this many std from mean moneyness
+MONEYNESS_SIGMA = 2.0        # drop quotes > this many std from that QUOTE DATE's mean moneyness
 ONE_SIDED_BSM_TOL = 0.50     # $ tolerance to keep a one-sided (assumed-0) mid-price
 IV_MIN, IV_MAX = 0.01, 5.0   # bisection search bounds for implied vol (decimal)
 # No-arbitrage price-bound filter (transform/clean._drop_arbitrage_violations) is
@@ -100,7 +100,7 @@ KALSHI_FEE_RATE = 0.035      # fee = ceil(rate * contracts * p * (1-p)) cents
 # higher costs -- see PAPER_CHANGES.md. Kept at 0.035 because the backtest must
 # price the fees the strategy would actually have paid in-sample. With the
 # per-contract hurdle below, results are not fragile to this: BL both-side
-# Sharpe is 1.53/3.16/1.34 at 0.035 versus 1.21/2.74/1.09 at 0.07.
+# Sharpe is 1.93/2.86/1.04 at 0.035 versus 1.46/2.41/0.76 at 0.07.
 # Round trips per position, used to size the entry hurdle in signals.generate.
 # NOT a tunable: Kalshi charges the taker fee on BOTH fills of a market-order
 # round trip (open and close), so a signal must clear two fees to be worth

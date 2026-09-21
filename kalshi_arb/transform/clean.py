@@ -137,9 +137,15 @@ def clean_chain(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     spread_frac = (df["Ask"] - df["Bid"]) / df["Mid"]
     df = df.drop(index=df.index[both & (spread_frac > config.MAX_SPREAD_FRAC)])
 
-    # moneyness outlier filter (global)
-    mu, sd = df["moneyness"].mean(), df["moneyness"].std()
-    df = df[np.abs(df["moneyness"] - mu) <= config.MONEYNESS_SIGMA * sd]
+    # moneyness outlier filter, computed WITHIN each quote date. Pooling the mean and
+    # std over the whole 2022-2024 sample would let a quote's fate depend on data from
+    # dates after it (2022 cleaning would use 2023-24 statistics); using only that
+    # day's own cross-section removes the look-ahead. A date with a single quote
+    # (std undefined) cannot be an outlier relative to itself, so it is kept.
+    g = df.groupby("quote")["moneyness"]
+    mu, sd = g.transform("mean"), g.transform("std")
+    keep = sd.isna() | ((df["moneyness"] - mu).abs() <= config.MONEYNESS_SIGMA * sd)
+    df = df[keep]
 
     # no-arbitrage price-bound filter (removes stale deep-ITM quotes)
     df = _drop_arbitrage_violations(df, verbose)

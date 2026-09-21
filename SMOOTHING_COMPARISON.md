@@ -82,15 +82,15 @@ keeps a SABR signal only when SVI independently signals the same direction.
 
 | variant | 2022 Sharpe [95% CI] | 2023 Sharpe [95% CI] | 2024 Sharpe [95% CI] | fills 22 / 23 / 24 |
 |---|---|---|---|---|
-| SABR | 1.93 [0.23, 3.71] | 2.85 [0.51, 4.87] | 1.03 [−0.33, 2.39] | 102 / 78 / 41 |
-| SVI | 2.04 [0.15, 3.96] | 2.76 [0.39, 4.72] | 0.67 [−0.61, 1.88] | 91 / 81 / 45 |
-| average | 1.93 [0.18, 3.80] | 2.87 [0.54, 4.83] | 0.85 [−0.54, 2.20] | 97 / 79 / 45 |
-| agreement | 2.19 [0.29, 4.12] | 2.84 [0.46, 4.82] | 0.68 [−0.59, 1.88] | 84 / 66 / 39 |
+| SABR | 1.93 [0.23, 3.71] | 2.86 [0.43, 4.87] | 1.04 [−0.31, 2.37] | 102 / 82 / 41 |
+| SVI | 1.93 [0.12, 3.83] | 2.64 [0.24, 4.65] | 0.66 [−0.55, 1.86] | 91 / 87 / 43 |
+| average | 1.88 [0.15, 3.70] | 2.72 [0.46, 4.66] | 0.87 [−0.52, 2.24] | 93 / 83 / 47 |
+| agreement | 2.07 [0.21, 3.98] | 2.80 [0.42, 4.81] | 0.65 [−0.54, 1.82] | 85 / 69 / 39 |
 
 **The four are statistically indistinguishable.** The largest Sharpe gap between any
-two variants is 0.26 / 0.11 / 0.37 by year, against confidence intervals about 3.5
+two variants is 0.20 / 0.22 / 0.39 by year, against confidence intervals about 3.5
 Sharpe units wide. The densities do differ (mean absolute SABR−SVI bucket probability
-0.58¢), so this is not a case of the toggle doing nothing; the strategy simply
+0.41¢), so this is not a case of the toggle doing nothing; the strategy simply
 trades the same mispricings whichever arbitrage-free smile is fitted. The agreement
 filter removes trades without improving results, so it is not worth its complexity.
 

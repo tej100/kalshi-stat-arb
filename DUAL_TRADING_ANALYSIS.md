@@ -50,7 +50,7 @@ so we must decompose which one actually drives returns.
 - **58%** of 31 active buckets reject a unit root (ADF, 5%) — moderate but real
   evidence of stationarity given ~240 daily obs/year (ADF has low power in short
   samples, so this understates it).
-- **Mean spread ≈ +0.003 (0.3¢), median |mean| ≈ 0.7¢** — the spread reverts to
+- **Mean spread ≈ +0.003 (0.3¢), median |mean| ≈ 0.8¢** — the spread reverts to
   essentially **zero**, not to a persistent biased premium.
 - **Half-life ≈ 1.9 trading days** (IQR 1.2–2.8). Convergence is **fast**.
 
@@ -60,10 +60,10 @@ regressed on the current spread):
 
 | Next-day change | Coef vs spread | t-stat | Interpretation |
 |---|---|---|---|
-| **Kalshi** | **−0.188** | **−19.8** | when Kalshi is rich, Kalshi *falls* → it corrects toward the model |
-| Options (model) | −0.004 | −0.5 | options do not move toward Kalshi at all |
+| **Kalshi** | **−0.191** | **−19.9** | when Kalshi is rich, Kalshi *falls* → it corrects toward the model |
+| Options (model) | −0.005 | −0.6 | options do not move toward Kalshi at all |
 
-**Essentially all (98%) of the spread correction is done by the Kalshi leg.** The
+**Essentially all (97%) of the spread correction is done by the Kalshi leg.** The
 options market leads; Kalshi follows. This is direct evidence for the "Kalshi
 re-converges to the SPXW options market at a lag" hypothesis. The t-statistics are
 plain OLS and should be read as an upper bound on significance (see section 6).
@@ -76,8 +76,8 @@ mislabelled the first as convergence. For the BL both-side backtest:
 | Year | Kalshi APY carry | Trading path (marked to market) | Settlement step | Total |
 |---|---|---|---|---|
 | 2022 | +6.95 | +18.67 | +0.72 | +26.34 |
-| 2023 | +7.00 | +19.84 | +1.04 | +27.88 |
-| 2024 | +6.94 | +5.61 | +0.72 | +13.27 |
+| 2023 | +7.00 | +19.57 | +1.04 | +27.61 |
+| 2024 | +6.94 | +5.76 | +0.72 | +13.42 |
 
 - **Carry (25–52% of P&L)** is the 3.75% APY Kalshi pays on the account. Any idle
   balance earns it; it is not mispricing edge, and in 2024 it is half the total.
@@ -112,7 +112,7 @@ help this strategy and would most likely reduce net performance**:
    Kalshi *failing* to converge, or diverging further before exit — is
    **idiosyncratic to Kalshi and cannot be hedged by the options leg**.
 2. **The hedge would cancel the source of profit.** The P&L comes from the
-   Kalshi leg moving (98% of the correction). The options leg barely moves
+   Kalshi leg moving (97% of the correction). The options leg barely moves
    (it leads and is already "correct"), so shorting it adds little offsetting
    P&L — it mainly layers on the OTM option bid/ask spread and ~2–3¢ mean
    replication basis (up to ~$1 at the binary knife-edge), plus a second venue's
