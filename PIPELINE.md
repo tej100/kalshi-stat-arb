@@ -38,9 +38,8 @@ end
 
 %% ================= STAGE 2c: PRICE =================
 subgraph PR["④ PRICE — pricing.price_chain()"]
-  LSQ --> P1["raw = BSM(option_type, underlying, K, T, r, LSQ_Vol)"]
-  P1 --> P2["BSM = raw + 0.20·(Mid − raw)   [control variate]"]
-  P2 --> PRICED["PRICED CHAIN + BSM  ·  (single source of truth: pipeline.build_chain)"]
+  LSQ --> P1["BSM = bsm_price(option_type, underlying, K, T, r, LSQ_Vol)<br/>pure model price — no blend toward Mid"]
+  P1 --> PRICED["PRICED CHAIN + BSM  ·  (single source of truth: pipeline.build_chain)"]
 end
 
 %% ================= STAGE 2d: DENSITY / PMFs =================
@@ -49,11 +48,8 @@ subgraph DEN["⑤ DENSITY — density.build_pmf_table(method) · EXACT same-cale
   CURVE -. "same fit_daily_smile" .-> DBL
   D0 --> DBL["bl_density  (PRIMARY)<br/>grid = [k_min−2000 , k_max+1000] × 5000<br/>σ = eval_smile(grid) · C = BSM_call(S,grid,T,r,σ)<br/>fp = clip(dC/dK, −DF, 0) → isotonic ↑ (convex C)<br/>dens = clip(e^(rT)·d²C/dK², 0) → smooth(25) → trim<br/>P([L,U]) = ∫ dens"]
   D0 --> DGB["gbm_pmf  (benchmark)<br/>σ = LSQ_Vol at strike nearest F (ATM)<br/>lognormal: P = Φ(d(U)) − Φ(d(L)), S0 = underlying"]
-  D0 --> DSP["spread_pmf  (discarded heuristic)"]
-  DBL --> MPMF["MODEL PMF · date × bucket"]
+  DBL --> MPMF["MODEL PMF · date × bucket<br/>bucket priced only if it overlaps [k_min,k_max] (coverage guard), else NaN"]
   DGB --> MPMF
-  KAL --> KP["kalshi_pmf.market_pmf<br/>mid of a valid book;<br/>empty book (bid ≤ 2c & ask ≥ 98c) or missing → NaN"]
-  KP --> KPMF["MARKET PMF · date × bucket"]
 end
 
 %% ================= STAGE 3: STRATEGY =================
@@ -69,10 +65,17 @@ subgraph ST["⑥ STRATEGY"]
   M1 --> OUT["PERFORMANCE TABLE  ·  run.full() orchestrates all"]
 end
 
-%% ================= SIDE: HEDGING (analysis, not a traded leg) =================
+%% ================= SIDE: ANALYSIS (not traded legs) =================
 subgraph HG["⑦ HEDGING — hedging.analyze_year (independent cross-market check)"]
   PRICED --> H1["replicate_bucket → SPX call condor (payoff 1 in-range)<br/>edge = Kalshi price − condor mid · basis risk"]
   KAL --> H1
+end
+
+subgraph AN["⑧ COINTEGRATION — analysis/cointegration.py (lead-lag study)"]
+  KAL --> KP["kalshi_pmf.market_pmf<br/>mid of a valid book;<br/>empty book (bid ≤ 2c & ask ≥ 98c) or missing → NaN"]
+  KP --> KPMF["MARKET PMF · date × bucket"]
+  KPMF --> C1["spread = Kalshi mid − model p<br/>ADF · half-life · error-correction (who leads)"]
+  MPMF --> C1
 end
 
 classDef art fill:#eef,stroke:#557;
@@ -92,5 +95,14 @@ class RAW,KAL,CLEAN,LSQ,PRICED,CURVE,MPMF,KPMF,TR,PV,OUT art;
   same-day chain.
 - **Hedging is detached by design** — an analysis of cross-market dislocation, not a
   leg the backtest trades.
-- **Discarded/dead branches shown for completeness:** `spread_pmf` (heuristic,
-  unused by `run.full`).
+- **The market PMF is analysis-facing, not traded.** `signals.generate` compares the
+  model probability to the price it would actually pay (ask) or receive (bid), so it
+  reads the raw book directly; `market_pmf`'s mid would understate execution cost.
+  The mid PMF exists to put both venues on one footing for the cointegration study.
+- **One book-validity rule.** `kalshi_pmf.is_valid_book` is the single definition
+  (missing quote, or bid ≤ 2c *and* ask ≥ 98c → not a real market); `backtest.run`
+  imports it for marking, so the traded and analysis paths cannot drift apart.
+- **The backtest index is a CALENDAR-day index** (365/366 rows incl. ~105 weekend
+  days), because Kalshi trades 24/7. New signals fire only on the ~240 weekdays with
+  a same-day option chain, but positions mark on every calendar row — so the ×252
+  annualization in `metrics` is under review (Phase 9).

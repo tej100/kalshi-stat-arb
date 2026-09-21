@@ -5,8 +5,10 @@ shared grid in `buckets`), so the strategy stage can treat them symmetrically:
 
     buckets     : the shared discrete bucket grid (standardization)
     clean       : option-chain cleaning + unit/rate/forward transforms
-    smoothing   : implied-volatility smoothing (LSQ spline)
-    pricing     : Black-Scholes-Merton + control variate
+    smiles      : the swappable IV-smile functional forms (SABR default; REGISTRY)
+    smoothing   : fits ONE daily smile per quote date and evaluates it
+    pricing     : Black-Scholes-Merton model price (no blend toward market)
     density     : options  -> risk-neutral density (BL) / GBM -> model bucket PMF
-    kalshi_pmf  : Kalshi order book -> market-implied bucket PMF
+    kalshi_pmf  : Kalshi order book -> market-implied bucket PMF (analysis-facing)
+                  + is_valid_book, the shared book-validity rule used for marking
 """

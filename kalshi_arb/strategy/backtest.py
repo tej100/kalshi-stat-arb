@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from .. import config
 from ..transform import buckets
+from ..transform.kalshi_pmf import is_valid_book
 
 
 def _apply_trade(positions, bucket, qty, price):
@@ -34,18 +35,6 @@ def _apply_trade(positions, bucket, qty, price):
     else:
         positions[bucket] = {"qty": new_qty, "cost": new_cost}
     return realized
-
-
-def _valid_book(kb, ka):
-    """A quote is a real two-sided market only if both sides are present and the
-    book is not degenerate. An empty book quotes bid 0 / ask 100 (e.g. a bucket
-    SPX has left entirely): that ask is a phantom price, not a liquidation value,
-    so it must not be used to mark a position."""
-    if np.isnan(kb) or np.isnan(ka):
-        return False
-    if kb <= config.MARK_MIN_BID and ka >= config.MARK_MAX_ASK:
-        return False
-    return True
 
 
 def run(trades, pmf_table, kalshi, year, start_cash=None):
@@ -96,7 +85,7 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
             kb = bid.loc[d, b] / 100.0 if (d in bid.index and not pd.isna(bid.loc[d, b])) else np.nan
             ka = ask.loc[d, b] / 100.0 if (d in ask.index and not pd.isna(ask.loc[d, b])) else np.nan
             mp = pmf.loc[d, b] if (d in pmf.index and not pd.isna(pmf.loc[d, b])) else np.nan
-            if _valid_book(kb, ka):
+            if is_valid_book(kb, ka):
                 m = 0.5 * (kb + ka)
                 last_mark[b] = m
             elif b in last_mark:
