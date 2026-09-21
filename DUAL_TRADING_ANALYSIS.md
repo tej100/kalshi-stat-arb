@@ -52,18 +52,18 @@ so we must decompose which one actually drives returns.
   samples, so this understates it).
 - **Mean spread ≈ +0.003 (0.3¢), median |mean| ≈ 0.8¢** — the spread reverts to
   essentially **zero**, not to a persistent biased premium.
-- **Half-life ≈ 1.9 trading days** (IQR 1.2–2.8). Convergence is **fast**.
+- **Half-life ≈ 2.0 trading days** (IQR 1.2–3.0). Convergence is **fast**.
 
 ### 3.2 Kalshi is the laggard — it does the correcting (the key result)
-Error-correction test on 2,342 bucket-days (next-day change in each venue
+Error-correction test on 2,344 bucket-days (next-day change in each venue
 regressed on the current spread):
 
 | Next-day change | Coef vs spread | t-stat | Interpretation |
 |---|---|---|---|
-| **Kalshi** | **−0.191** | **−19.9** | when Kalshi is rich, Kalshi *falls* → it corrects toward the model |
-| Options (model) | −0.005 | −0.6 | options do not move toward Kalshi at all |
+| **Kalshi** | **−0.186** | **−21.8** | when Kalshi is rich, Kalshi *falls* → it corrects toward the model |
+| Options (model) | −0.001 | −0.1 | options do not move toward Kalshi at all |
 
-**Essentially all (97%) of the spread correction is done by the Kalshi leg.** The
+**Essentially all of the spread correction is done by the Kalshi leg.** The
 options market leads; Kalshi follows. This is direct evidence for the "Kalshi
 re-converges to the SPXW options market at a lag" hypothesis. The t-statistics are
 plain OLS and should be read as an upper bound on significance (see section 6).
@@ -75,9 +75,9 @@ mislabelled the first as convergence. For the BL both-side backtest:
 
 | Year | Kalshi APY carry | Trading path (marked to market) | Settlement step | Total |
 |---|---|---|---|---|
-| 2022 | +6.95 | +18.67 | +0.72 | +26.34 |
-| 2023 | +7.00 | +19.57 | +1.04 | +27.61 |
-| 2024 | +6.94 | +5.76 | +0.72 | +13.42 |
+| 2022 | +6.95 | +18.88 | +0.72 | +26.55 |
+| 2023 | +7.00 | +17.35 | +1.12 | +25.47 |
+| 2024 | +6.95 | +6.07 | +0.72 | +13.74 |
 
 - **Carry (25–52% of P&L)** is the 3.75% APY Kalshi pays on the account. Any idle
   balance earns it; it is not mispricing edge, and in 2024 it is half the total.
@@ -112,7 +112,7 @@ help this strategy and would most likely reduce net performance**:
    Kalshi *failing* to converge, or diverging further before exit — is
    **idiosyncratic to Kalshi and cannot be hedged by the options leg**.
 2. **The hedge would cancel the source of profit.** The P&L comes from the
-   Kalshi leg moving (97% of the correction). The options leg barely moves
+   Kalshi leg moving (essentially all of the correction). The options leg barely moves
    (it leads and is already "correct"), so shorting it adds little offsetting
    P&L — it mainly layers on the option bid/ask spread (measured: the replication's
    round-trip spread is about 26¢ per $1 bucket at the median, against Kalshi's own
@@ -121,7 +121,7 @@ help this strategy and would most likely reduce net performance**:
 3. **The hedge's theoretical benefit is nearly irrelevant here.** Dual-trading's
    real advantage is converting a forecast bet into a *settlement-guaranteed*
    arbitrage. But settlement is only 3–5% of P&L and the spread half-life is short
-   (about 1.9 days), so the guarantee buys little while costing spread + basis.
+   (about 2 days), so the guarantee buys little while costing spread + basis.
 
 ### When dual-trading *would* be the right call (for a different configuration)
 - If the edge were **settlement-forecast-driven** (mechanism b dominant) rather
@@ -156,7 +156,7 @@ not from a locked-in hedge.
 - **3-year sample**; ADF and error-correction estimates have wide confidence
   intervals. Treat magnitudes as indicative and the direction as the finding.
 - **The reported t-statistics are plain OLS and overstate significance.** The
-  2,342 bucket-days are serially dependent within a bucket and cross-sectionally
+  2,344 bucket-days are serially dependent within a bucket and cross-sectionally
   dependent within a day (all buckets derive from one density), and the Kalshi mid
   carries bid-ask bounce, which mechanically produces some mean reversion in the
   Kalshi leg. Clustered standard errors, and a check that the Kalshi and option

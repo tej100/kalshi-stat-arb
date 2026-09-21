@@ -25,17 +25,18 @@ the density pipeline is identical.
 - **modes** — count of local maxima of the raw density above 5% of peak; 1 = clean.
 
 ## Results (mean over 6 sample dates, 2022–2024; all evaluated through the
-## production `eval_smile`: strike-clamp + IV-envelope clamp)
+## production `eval_smile`: strike clamp for every method, IV envelope for the
+## spline smoothers only, positivity floor for SABR/SVI)
 
 | method | fit_rmse | overshoot | arb_neg | roughness | modes | verdict |
 |---|---|---|---|---|---|---|
-| **SABR** (Hagan, β=0.5) — **CHOSEN** | 0.004 | 0.99 | **0.002** | **2.30** | 2.2 | smoothest, ~arbitrage-free, 705/705 days calibrate |
-| **SVI** (Gatheral raw) — kept | 0.004 | 0.99 | **0.002** | 2.69 | 2.3 | ~arbitrage-free, flexible wings |
-| cubic smoothing spline | 0.005 | 0.98 | 0.023 | 2.53 | 2.2 | smooth but oversmooths wings |
-| polynomial (deg 4) | 0.004 | 1.00 | 0.019 | 3.01 | 3.0 | ok body, Runge in the wings |
-| LSQ spline (former default) | 0.002 | 1.00 | 0.021 | 2.72 | 2.5 | tight fit, spiky raw density, needs repair |
-| PCHIP (monotone) | 0.000 | 1.00 | 0.199 | 6.38 | 14 | **interpolates noise → 20% arbitrage** |
-| LOWESS | 0.003 | 0.99 | 0.012 | 29.4 | 93 | **density is pure noise** |
+| **SABR** (Hagan, β=0.5) — **CHOSEN** | 0.004 | 0.99 | **0.002** | **2.16** | 1.7 | smoothest, ~arbitrage-free, 705/705 days calibrate |
+| **SVI** (Gatheral raw) — kept | 0.004 | 1.00 | **0.002** | 2.28 | 1.7 | ~arbitrage-free, flexible wings |
+| cubic smoothing spline | 0.005 | 0.99 | 0.027 | 2.38 | 2.0 | smooth but oversmooths wings |
+| polynomial (deg 4) | 0.004 | 1.00 | 0.024 | 2.63 | 2.2 | ok body, Runge in the wings |
+| LSQ spline (former default) | 0.002 | 1.00 | 0.031 | 2.75 | 2.7 | tight fit, spiky raw density, needs repair |
+| PCHIP (monotone) | 0.000 | 1.00 | 0.216 | 6.37 | 14 | **interpolates noise → 20% arbitrage** |
+| LOWESS | 0.003 | 0.98 | 0.013 | 27.2 | 97 | **density is pure noise** |
 
 ## Findings
 1. **PCHIP and LOWESS are disqualified.** PCHIP interpolates every noisy point
@@ -82,17 +83,27 @@ keeps a SABR signal only when SVI independently signals the same direction.
 
 | variant | 2022 Sharpe [95% CI] | 2023 Sharpe [95% CI] | 2024 Sharpe [95% CI] | fills 22 / 23 / 24 |
 |---|---|---|---|---|
-| SABR | 1.93 [0.23, 3.71] | 2.86 [0.43, 4.87] | 1.04 [−0.31, 2.37] | 102 / 82 / 41 |
-| SVI | 1.93 [0.12, 3.83] | 2.64 [0.24, 4.65] | 0.66 [−0.55, 1.86] | 91 / 87 / 43 |
-| average | 1.88 [0.15, 3.70] | 2.72 [0.46, 4.66] | 0.87 [−0.52, 2.24] | 93 / 83 / 47 |
-| agreement | 2.07 [0.21, 3.98] | 2.80 [0.42, 4.81] | 0.65 [−0.54, 1.82] | 85 / 69 / 39 |
+| SABR | 1.99 [0.26, 3.78] | 2.25 [0.27, 3.98] | 1.08 [−0.29, 2.37] | 100 / 81 / 39 |
+| SVI | 1.94 [0.11, 3.83] | 2.74 [0.41, 4.73] | 0.67 [−0.54, 1.87] | 89 / 93 / 41 |
+| average | 1.87 [0.12, 3.72] | 2.16 [0.28, 3.77] | 0.89 [−0.51, 2.24] | 91 / 89 / 45 |
+| agreement | 2.08 [0.22, 4.00] | 2.19 [0.32, 3.83] | 0.69 [−0.51, 1.85] | 83 / 74 / 37 |
 
-**The four are statistically indistinguishable.** The largest Sharpe gap between any
-two variants is 0.20 / 0.22 / 0.39 by year, against confidence intervals about 3.5
-Sharpe units wide. The densities do differ (mean absolute SABR−SVI bucket probability
-0.41¢), so this is not a case of the toggle doing nothing; the strategy simply
-trades the same mispricings whichever arbitrage-free smile is fitted. The agreement
-filter removes trades without improving results, so it is not worth its complexity.
+**The four are statistically indistinguishable, though not identical.** The largest
+Sharpe gap between any two variants is 0.21 / 0.58 / 0.41 by year, against confidence
+intervals about 3.3 Sharpe units wide. The one visible spread is BL 2023, where the
+point estimate runs from 2.16 (average) to 2.74 (SVI): the smile treatment moves that
+single number by roughly ±0.3 around SABR's 2.25, so it should be quoted with its
+interval and not read as a property of the model. The densities do differ (mean
+absolute SABR−SVI bucket probability 0.41¢), so this is not a case of the toggle doing
+nothing. The agreement filter removes trades without improving results, so it is not
+worth its complexity.
+
+**Density quality in production** (all 704 days, SABR): after removing the IV-envelope
+clamp for the parametric smiles, unimodal densities rose from 26.7% to 43.5% of days,
+days with three or more peaks fell from 54.3% to 9.9%, mean peaks from 2.32 to 1.66
+and roughness (total variation / peak) from 2.50 to 2.22, with mass unchanged at
+0.9996. Some interior extra peaks remain (about 0.45 a day), which need not be errors:
+a left-tail shoulder is normal in an equity skew.
 
 Consequences: the choice of SABR over SVI rests on smoothness and calibration
 (above), not on strategy performance, and the paper can report the result as

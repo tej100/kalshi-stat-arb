@@ -32,7 +32,7 @@ end
 subgraph SM["③ SMOOTH — smoothing (ONE smile per day, reused everywhere)"]
   CLEAN --> S1["fit_daily_smile(day)<br/>OTM-combined: puts strike under F, calls strike at/above F<br/>SMILE_METHOD (default SABR; swappable: svi/lsq/cubic/poly/pchip/lowess)"]
   S1 --> CURVE(["fitted smile · k_min, k_max, iv_min, iv_max"])
-  CURVE --> S2["eval_smile(curve, all strikes)<br/>clamp strike ∈ [k_min,k_max] (flat wings)<br/>clamp IV ∈ [iv_min,iv_max] (envelope; kills spline overshoot)"]
+  CURVE --> S2["eval_smile(curve, all strikes)<br/>clamp strike ∈ [k_min,k_max] (flat wings)<br/>IV: spline smoothers clamped to [iv_min,iv_max] (kills overshoot); SABR/SVI only floored at IV_MIN"]
   S2 --> LSQ["CHAIN + LSQ_Vol"]
 end
 
@@ -100,7 +100,7 @@ class RAW,KAL,CLEAN,LSQ,PRICED,CURVE,MPMF,KPMF,TR,PV,OUT art;
   reads the raw book directly; `market_pmf`'s mid would understate execution cost.
   The mid PMF exists to put both venues on one footing for the cointegration study.
 - **One book-validity rule.** `kalshi_pmf.is_valid_book` is the single definition
-  (missing quote, or bid ≤ 2c *and* ask ≥ 98c → not a real market); `backtest.run`
+  (missing quote; empty book bid ≤ 2c *and* ask ≥ 98c; or spread ≥ 50c → not a real market); `backtest.run`
   imports it for marking, so the traded and analysis paths cannot drift apart.
 - **The fee hurdle is per CONTRACT, the fee itself is per LOT.** `kalshi_fee` returns
   dollars for the whole lot (which is what `backtest.run` spends); `entry_hurdle`

@@ -37,14 +37,14 @@ strike gap) and are excluded.
 
 ## Results
 
-4,258 bucket-days with a valid Kalshi book, same-day chain and two-sided quotes on every leg:
+4,257 bucket-days with a valid Kalshi book, same-day chain and two-sided quotes on every leg:
 
 | year | bucket-days | mean \|Kalshi − replication\| | option round-trip spread | Kalshi spread | edge > 0 after spreads | after Kalshi fee | also above replication error | replication error |
 |---|---|---|---|---|---|---|---|---|
 | 2022 | 1,196 | 2.81¢ | 42¢ | 3¢ | 0.3% | 0.2% | 0.2% | 0.36¢ |
-| 2023 | 2,043 | 3.33¢ | 23¢ | 1¢ | 6.6% | 5.7% | 2.3% | 1.10¢ |
-| 2024 | 1,019 | 2.35¢ | 26¢ | 2¢ | 0.3% | 0.1% | 0.0% | 0.79¢ |
-| all | 4,258 | 2.95¢ | 26¢ | 2¢ | 3.3% | 2.8% | 1.2% | 0.82¢ |
+| 2023 | 2,043 | 3.33¢ | 23¢ | 1¢ | 6.6% | 5.7% | 2.1% | 1.11¢ |
+| 2024 | 1,018 | 2.31¢ | 26¢ | 2¢ | 0.3% | 0.1% | 0.0% | 0.78¢ |
+| all | 4,257 | 2.94¢ | 26¢ | 2¢ | 3.3% | 2.8% | 1.1% | 0.82¢ |
 
 (Spreads are medians, in cents of a $1 bucket. Replication error is the mean `E_Q|gap|`.)
 
@@ -54,7 +54,7 @@ strike gap) and are excluded.
   expected bias (its signed mean payoff gap is −0.81¢), leaving +0.2¢.
 - **Almost none of the gap is capturable.** Replicating a bucket with options costs about
   26¢ round trip against Kalshi's roughly 2¢ spread, so only 3.3% of bucket-days show any
-  positive edge after crossing spreads (median 0.9¢ when positive), and 1.2% beat the
+  positive edge after crossing spreads (median 0.9¢ when positive), and 1.1% beat the
   replication's own error. 2023, with the tightest option markets, is the only year where
   this is not close to zero.
 - **So this is a consistency check, not evidence of a tradable arbitrage.** The strategy's
