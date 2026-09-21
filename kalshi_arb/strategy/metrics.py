@@ -2,6 +2,24 @@
 
 Reported: annualized return/vol, Sharpe, strategy max drawdown, daily alpha and
 beta vs SPX, and the mark-to-model <-> mark-to-market correlation (model_rho).
+
+RETURN SAMPLING -- all return-based statistics are computed on the TRADING-day
+calendar, not on the backtest's own index. The backtest is indexed by Kalshi's
+calendar (365/366 rows: Kalshi trades 24/7), so a naive pct_change there yields
+a calendar-daily series, which the 252 annualization factor does not describe.
+Weekend rows are not inert either -- 49-88 of them per year carry a genuine
+non-zero mark. Two things therefore go wrong if the raw index is used:
+
+  1. ann_return/ann_vol are scaled by 252 while the series has ~365 obs/yr.
+  2. The SPX benchmark only exists on trading days, so reindexing it onto the
+     Kalshi calendar forward-fills 124-142 artificial zero-return rows per year,
+     which shrinks cov(strategy, SPX) and biases beta toward zero.
+
+Sampling the portfolio on trading days fixes both: a Friday->Monday return
+correctly absorbs the weekend move (the standard equity convention), and the
+benchmark is then real on every row. The trading calendar is taken from the
+option chain's own quote dates, so it is data-derived (no hard-coded holiday
+list) and identical to the benchmark's calendar by construction.
 """
 from __future__ import annotations
 import numpy as np
@@ -12,6 +30,21 @@ from .. import config
 def _daily_returns(level: pd.Series) -> pd.Series:
     r = level.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
     return r
+
+
+def trading_days(chain, year, index_like) -> pd.DatetimeIndex:
+    """The real trading calendar for `year`, as observed in the option chain,
+    restricted to rows the backtest actually produced.
+
+    Using the chain's quote dates (rather than a weekday mask) excludes market
+    holidays without hard-coding a holiday calendar, and guarantees the
+    benchmark has a genuine observation on every sampled row. Note this also
+    ends the 2024 return path at 2024-11-19 where the option feed stops -- past
+    that date there is no benchmark to measure against, so the rows were
+    contributing forward-filled zeros rather than information.
+    """
+    q = chain.loc[chain["quote"].dt.year == year, "quote"]
+    return pd.DatetimeIndex(sorted(set(q) & set(index_like)))
 
 
 def spx_benchmark(chain, year, index_like) -> pd.Series:
@@ -25,14 +58,19 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None) -> dict:
     """Compute the performance row for one backtest result `m`."""
     pv = m["portfolio_value"]
     rf_d = config.BENCH_RF / config.TRADING_DAYS
-    rs = _daily_returns(pv)
+    # Return statistics are sampled on trading days so that the x252 factor
+    # describes the series (see module docstring); the drawdown below stays on
+    # the FULL calendar path, since a trough reached over a weekend is a real
+    # drawdown the position lived through and is not an annualized quantity.
+    td = trading_days(chain, year, m.index)
+    rs = _daily_returns(pv.loc[td])
 
     ann_ret = rs.mean() * config.TRADING_DAYS
     ann_vol = rs.std() * np.sqrt(config.TRADING_DAYS)
     sharpe = (ann_ret - config.BENCH_RF) / ann_vol if ann_vol > 0 else np.nan
     max_dd = ((pv - pv.cummax()) / pv.cummax()).min()
 
-    spx = spx_benchmark(chain, year, m.index)
+    spx = spx_benchmark(chain, year, td)
     rm = _daily_returns(spx)
     idx = rs.index.intersection(rm.index)
     beta = alpha = np.nan
@@ -42,7 +80,7 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None) -> dict:
         beta = a.cov(b) / var if var > 0 else np.nan
         alpha = a.mean() - beta * b.mean()            # daily alpha
 
-    rmod = _daily_returns(m["model_value"])
+    rmod = _daily_returns(m["model_value"].loc[td])
     j = rs.index.intersection(rmod.index)
     model_rho = rs.loc[j].corr(rmod.loc[j]) if len(j) > 2 else np.nan
 

@@ -32,14 +32,25 @@ def is_valid_book(bid, ask):
     `backtest.run`'s marking both call it, so the traded path and the analysis
     path cannot drift apart.
 
+    The columns really are yes_bid / yes_ask, NOT a yes/no pair: if `ask` were
+    the NO bid, then bid + ask would sit at ~100 by construction (yes_ask =
+    100 - no_bid). Measured, bid + ask has a median of 13-16c and lands in
+    99..101 for only 0.0-2.3% of quotes, so the labels are correct.
+
     NOTE (known gap, deliberate): this is a CORNER test (bid pinned at the floor
-    AND ask pinned at the ceiling), not a spread test. A merely terrible book
-    such as bid 2c / ask 97c is a genuine quote by someone and passes, even
-    though its 49.5c mid carries little information. Measured incidence is small
-    (2 marks in 2024, 0 in 2022-23; ~1% of marks have a >20c spread). Widening
-    this into a spread-quality filter would require a threshold that no hard
-    rule pins down, so it is documented rather than guessed at -- see
-    PROJECT_CONTEXT.md section 12.
+    AND ask pinned at the ceiling), not a spread test, so it catches an ask of
+    98c but not 97c. That matters because near-ceiling asks are a BOOK-OUTAGE
+    artifact, not real pricing: in 2024 the 4800-4999.99 bucket quotes an ask of
+    2-3c through 11/12, then 100, 99, 100, 98, 97 on 11/16-11/21, then snaps back
+    to 2c on 11/22, with no trade in between -- one contiguous outage whose tail
+    happens to dip below the 98c threshold. On 11/16 every one of the 13 buckets
+    reads 0/100 while the last-trade column still shows sane 1-13c values, which
+    is the cleanest demonstration that the quote side, not the trade side, is
+    what degrades. Incidence is small (2 marks in 2024, 0 in 2022-23), so this
+    is documented rather than patched with a fresh cutoff: the principled repair
+    is a marking policy that cannot be fooled by a one-sided book (mark to the
+    side a position would actually liquidate against), which is a Phase 8
+    decision. See PROJECT_CONTEXT.md section 12.
     """
     b = np.asarray(bid, dtype=float)
     a = np.asarray(ask, dtype=float)
