@@ -99,6 +99,21 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None, kalshi=None) -> dict:
     j = rs.index.intersection(rmod.index)
     model_rho = rs.loc[j].corr(rmod.loc[j]) if len(j) > 2 else np.nan
 
+    # Return NET of the accrued Kalshi APY -- an ATTRIBUTION figure, splitting
+    # the headline return into passive platform carry and actual trading P&L.
+    #
+    # There is deliberately no second "ex-APY Sharpe" here. Because BENCH_RF is
+    # set to KALSHI_APY, the headline `sharpe` ALREADY measures excess over the
+    # carry (holding cash on Kalshi is the risk-free alternative, and it earns
+    # exactly that yield). Subtracting the risk-free rate again from a series
+    # that has had the carry removed double-counts it and reads far too harsh --
+    # 2024 BL both-side would show -0.11 rather than its correct 1.03. Use
+    # `sharpe` for risk-adjusted performance and `ann_return_ex_apy` only to say
+    # how much of the raw return was carry.
+    ex = pv - m["interest"] if "interest" in m else pv
+    rx = _daily_returns(ex.loc[td])
+    ann_ret_ex = rx.mean() * config.TRADING_DAYS
+
     # Total return INCLUDING the year-end settlement payoff (the MTM path above
     # is pre-settlement; ann_return/Sharpe are path metrics, total_return is the
     # realized end-to-end result once held buckets settle).
@@ -108,6 +123,7 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None, kalshi=None) -> dict:
 
     return dict(
         ann_return=ann_ret, ann_vol=ann_vol, sharpe=sharpe, max_dd=max_dd,
+        ann_return_ex_apy=ann_ret_ex,
         alpha_daily=alpha, beta=beta, model_rho=model_rho,
         settlement=m.attrs.get("settlement", np.nan),
         final_value=final_value, total_return=total_return,
@@ -159,7 +175,8 @@ def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
 def format_table(records: list[dict]) -> pd.DataFrame:
     """records: list of dicts with year, model, side + summarize() output."""
     df = pd.DataFrame(records)
-    pct = ["ann_return", "ann_vol", "max_dd", "alpha_daily", "total_return"]
+    pct = ["ann_return", "ann_vol", "max_dd", "alpha_daily", "total_return",
+           "ann_return_ex_apy"]
     for c in pct:
         df[c] = (df[c] * 100).round(2)
     df["sharpe"] = df["sharpe"].round(2)

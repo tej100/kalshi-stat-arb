@@ -109,7 +109,15 @@ KALSHI_FEE_RATE = 0.035      # fee = ceil(rate * contracts * p * (1-p)) cents
 # settlement pay no exit fee, which makes this hurdle mildly conservative.
 FEE_ROUND_TRIP_FILLS = 2
 KALSHI_APY = 0.0375          # yield on cash + open positions, accrued monthly
-BENCH_RF = 0.03              # annual risk-free rate for Sharpe/alpha benchmarking
+# Risk-free hurdle for Sharpe/alpha. Set to the KALSHI APY, not an external
+# T-bill rate: the capital backing this strategy sits in a Kalshi account, where
+# doing nothing at all earns KALSHI_APY. That is the genuine opportunity cost, so
+# it is the rate the strategy must beat. Using a lower external rate credits the
+# strategy with (KALSHI_APY - rate) per year of excess it did not generate --
+# at 3% that was 0.75%/yr of spurious alpha. Metrics additionally report the
+# return NET of the accrued APY (`*_ex_apy`), which isolates the mispricing edge
+# from the platform carry; the gap is large (2024 BL Sharpe 1.34 vs 0.18).
+BENCH_RF = KALSHI_APY        # annual risk-free rate for Sharpe/alpha benchmarking
 TRADING_DAYS = 252           # annualization factor (consistent across strat + bench)
 
 YEARS = (2022, 2023, 2024)

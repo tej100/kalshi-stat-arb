@@ -80,9 +80,12 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
                 cash -= t["qty"] * t["price"] + t["fee"]
                 executed.append(t)
 
-        # Mark to the MID of a valid two-sided book. Degenerate/empty books
-        # (bid 0 / ask 100) and missing quotes are not tradable prices, so we
-        # fall back to the last valid mid, then to the model probability.
+        # Mark each position to the side it would actually LIQUIDATE against: a
+        # long can only be sold at the bid, a short can only be covered at the
+        # ask. Marking to the mid would carry every open position at half a
+        # spread better than it could be realised. Degenerate/empty books (bid 0
+        # / ask 100) and outage days are not tradable prices, so we fall back to
+        # the last valid book, then to the model probability.
         mtm_pos = 0.0
         model_pos = 0.0
         unreal = 0.0
@@ -92,10 +95,10 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
             ka = ask.loc[d, b] / 100.0 if (d in ask.index and not pd.isna(ask.loc[d, b])) else np.nan
             mp = pmf.loc[d, b] if (d in pmf.index and not pd.isna(pmf.loc[d, b])) else np.nan
             if d not in outage and is_valid_book(kb, ka):
-                m = 0.5 * (kb + ka)
-                last_mark[b] = m
-            elif b in last_mark:
-                m = last_mark[b]
+                last_mark[b] = (kb, ka)
+            if b in last_mark:
+                lb, la = last_mark[b]
+                m = lb if q > 0 else la
             else:
                 m = mp if not np.isnan(mp) else 0.0
             mtm_pos += q * m
@@ -117,7 +120,8 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
         if m.index[i].month != m.index[i - 1].month:
             interest.iloc[i] = m["portfolio_value"].iloc[i - 1] * apy_m
     interest = interest.cumsum()
-    m["portfolio_value"] += interest
+    m["interest"] = interest          # exposed so metrics can report the
+    m["portfolio_value"] += interest  # strategy return net of platform carry
     m["model_value"] += interest
 
     # settlement at true year-end close: held buckets pay $1 if in range
