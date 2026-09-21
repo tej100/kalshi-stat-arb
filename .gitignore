@@ -24,3 +24,5 @@ paper/*.blg
 paper/*.fls
 paper/*.fdb_latexmk
 paper/build.log
+# untouched copy of the pre-audit paper (local reference only)
+paper/_original/
