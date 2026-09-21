@@ -6,25 +6,59 @@ rebuild that pickle. Fetching is never triggered on import - call it explicitly
 or run this module as a script. The API key is loaded lazily from the gitignored
 `api_key.py` so importing this module never requires credentials.
 
-!! `kalshi_data.pkl` CANNOT BE REGENERATED - TREAT IT AS PRIMARY SOURCE DATA !!
-Verified 2026-09-21: Kalshi no longer serves the settled 2022-2024 markets.
-`GET /events/{ticker}` returns the event with an EMPTY markets list, and every
-one of the 39 stored market tickers 404s on `GET /markets/{ticker}` (0/13 in
-each year), so the candlesticks behind this pickle are unreachable. The API,
-the credentials and the candlestick endpoint are all fine - live markets under
-the current series return data normally - so this is retention, not breakage.
-The pickle (written 2025-04-22) is the only surviving copy of this dataset;
-back it up, and do not overwrite it with a partial re-fetch.
+!! `kalshi_data.pkl` CANNOT CURRENTLY BE REGENERATED FROM THE PUBLIC API !!
+!! TREAT IT AS PRIMARY SOURCE DATA AND BACK IT UP                       !!
 
-Consequence: the 2024-11-16..21 quote-feed outage documented in
-`transform/kalshi_pmf.feed_outage_days` can never be repaired at source, which
-is why it is handled in code.
+Re-pull attempted 2026-09-21 with live credentials. Precisely what was found,
+on the only reachable host (`api.kalshi.com` does not resolve;
+`trading-api.kalshi.com` 401s with "API has been moved"):
 
-Note also that the product has since been renamed and restructured (the current
-series uses tickers like `KXINXY-26DEC31H1600-T4000`, threshold-style, versus
-the `INXY-22DEC30-B3300` bucket style stored here), so EVENT_TICKERS and
-`_rename_buckets` below describe the historical schema and would need rework to
-target current markets.
+  RETAINED - the EVENTS all still exist. `GET /events?series_ticker=KXINXY`
+  returns 6 events including `INXY-22DEC30`, `INXY-23DEC29` and `INXD-24DEC31`,
+  each with correct metadata (titles, strike dates, and `mutually_exclusive:
+  true`). The event tickers in EVENT_TICKERS below are therefore CORRECT, and
+  the Kalshi web UI can still show these events, their market rules and their
+  settled Yes/No outcomes from this retained metadata.
+
+  NOT SERVED - the individual MARKETS behind those events:
+    * `GET /events/{ticker}`                 -> 200 but `"markets": []`
+      (also with `with_nested_markets=true`)
+    * `GET /markets/{ticker}`                -> 404 for all 39 stored tickers,
+      and for `INXY-22DEC30-T2600` read straight off the Kalshi UI
+    * `GET /markets?event_ticker=...`        -> 200, n=0 for every status value
+      (unopened/open/closed/settled) and with any `min_close_ts`/`max_close_ts`
+    * `GET /markets?series_ticker=KXINXY`    -> 84 markets, ALL 2026/2027; no
+      historical ticker appears. Legacy series names (INX, INXY, INXD, KXINX)
+      return nothing either.
+    * `GET /series/{s}/markets/{t}/candlesticks` -> 404 under every plausible
+      series prefix.
+    * `GET /markets/trades?ticker=...`       -> 200 but ZERO trades, versus 5
+      trades for a live market: the ticker is accepted, the data is absent.
+
+  CONTROL (proves credentials, host and call shape are all fine) - the same
+  candlestick call against live `KXINXY-26DEC31H1600-B8100` returns 200 with 20
+  candles carrying `yes_bid`/`yes_ask`, exactly the fields this module parses.
+
+  NOT EVIDENCE - `GET /markets/{ticker}/orderbook` returns 200 with an empty
+  book for historical tickers, but it does the same for a made-up ticker, so it
+  says nothing about whether a market exists.
+
+So the *quote time series* is unavailable through the documented v2 API even
+though the *event* is retained. One avenue is untested: if the Kalshi web UI
+renders a historical PRICE CHART for these markets (as opposed to just the
+settled outcome), it must call some endpoint to do it - open DevTools ->
+Network on that page and look for the request. If such an endpoint exists, this
+module can be pointed at it and the dataset rebuilt.
+
+Consequence for now: the 2024-11-16..21 quote-feed outage documented in
+`transform/kalshi_pmf.feed_outage_days` cannot be repaired at source, which is
+why it is handled in code.
+
+Note also that the product has since been restructured - current markets look
+like `KXINXY-26DEC31H1600-B8100` (bucket) and `-T4000` (open-ended tail),
+versus the `INXY-22DEC30-B3300` / `-T2600` style stored here - so the event
+ticker format and `_rename_buckets` below describe the historical schema and
+would need rework to target current markets.
 """
 from __future__ import annotations
 import base64
