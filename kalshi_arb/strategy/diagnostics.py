@@ -50,8 +50,7 @@ def risk_summary(m: pd.DataFrame) -> dict:
     settlement outcomes that happened to occur.
     """
     snaps = _snapshots(m)
-    coll = pd.Series({d: sum(p["cost"] if p["qty"] > 0 else abs(p["qty"]) + p["cost"]
-                             for p in s.values()) for d, s in snaps.items()})
+    coll = m["collateral"]
     util = coll / m["portfolio_value"]
     worst_payoff = pd.Series({d: min([0.0] + [p["qty"] for p in s.values()])
                               for d, s in snaps.items()})

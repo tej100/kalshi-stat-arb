@@ -1,9 +1,10 @@
 """Step 7 - portfolio engine for the Kalshi bucket strategy.
 
 Marks open positions to the MID of a valid two-sided Kalshi book each day (see
-the marking block in `run` for the fallback chain), accrues the 3.75% APY
-monthly on total portfolio value, and settles held buckets at the true year-end
-SPX close ($1 if in-bucket).
+the marking block in `run` for the fallback chain), accrues Kalshi's interest
+on the collateral posted for open positions (only from the date Kalshi started
+paying it), and settles held buckets at the true year-end SPX close ($1 if
+in-bucket).
 
 Produces both a mark-to-MARKET series (only fillable prices) and a
 mark-to-MODEL series (positions valued at the model probability), so their
@@ -38,9 +39,15 @@ def _apply_trade(positions, bucket, qty, price):
     return realized
 
 
+def collateral(positions) -> float:
+    """Cash Kalshi holds against the open book: p per long, 1 - p per short."""
+    return sum(p["cost"] if p["qty"] > 0 else abs(p["qty"]) + p["cost"]
+               for p in positions.values())
+
+
 def run(trades, pmf_table, kalshi, year, start_cash=None):
     """Run the backtest for one year. Returns a DataFrame indexed by date with
-    portfolio_value (mark-to-market, incl. APY) and model_value (mark-to-model),
+    portfolio_value (mark-to-market, incl. Kalshi interest) and model_value (mark-to-model),
     plus realized/unrealized/cash columns; the final row includes settlement.
 
     `trades` is the raw SIGNAL log from signals.generate() -- it re-fires every
@@ -107,21 +114,24 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
 
         rows.append(dict(day=d, cash=cash, mtm_positions=mtm_pos,
                          model_positions=model_pos, unrealized=unreal,
-                         realized_cum=realized_cum))
+                         realized_cum=realized_cum, collateral=collateral(positions)))
 
     m = pd.DataFrame(rows).set_index("day")
     m["portfolio_value"] = m["cash"] + m["mtm_positions"]
     m["model_value"] = m["cash"] + m["model_positions"]
 
-    # monthly APY accrual on total portfolio value, added to both series
-    apy_m = config.KALSHI_APY / 12
-    interest = pd.Series(0.0, index=m.index)
-    for i in range(1, len(m)):
-        if m.index[i].month != m.index[i - 1].month:
-            interest.iloc[i] = m["portfolio_value"].iloc[i - 1] * apy_m
-    interest = interest.cumsum()
-    m["interest"] = interest          # exposed so metrics can report the
-    m["portfolio_value"] += interest  # strategy return net of platform carry
+    # Kalshi interest on posted collateral, accrued daily on the previous day's
+    # collateral and only from the date Kalshi began paying it. Idle cash is not
+    # credited here: it is assumed to earn the risk-free rate outside the account,
+    # which metrics.excess_value accounts for by charging the collateral, not
+    # the cash, for the cost of capital.
+    days = m.index.to_series().diff().dt.days.fillna(0).values
+    rate = np.where(m.index >= pd.Timestamp(config.KALSHI_INTEREST_START),
+                    config.KALSHI_INTEREST_RATE, 0.0)
+    interest = pd.Series(np.cumsum(m["collateral"].shift().fillna(0).values * rate * days / 365.0),
+                         index=m.index)
+    m["interest"] = interest
+    m["portfolio_value"] += interest
     m["model_value"] += interest
 
     # settlement at true year-end close: held buckets pay $1 if in range

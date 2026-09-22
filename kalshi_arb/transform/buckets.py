@@ -14,12 +14,6 @@ def bucket_bounds(bucket: str) -> tuple[float, float]:
     return float(lo), float(hi)
 
 
-def bucket_mid(bucket: str) -> float:
-    """Midpoint of a bucket range."""
-    lo, hi = bucket_bounds(bucket)
-    return 0.5 * (lo + hi)
-
-
 def edges(buckets) -> np.ndarray:
     """Sorted array of unique bucket boundaries across a set of buckets."""
     e = set()

@@ -49,7 +49,6 @@ GRID_PAD_HIGH = 1000.0       # extend grid this far above max observed strike
 GRID_POINTS = 5000
 DENSITY_SMOOTH_WINDOW = 25    # grid points (~$30) for light mass-preserving
                               # smoothing of the density; removes boundary kinks
-DISCOUNT_PROBABILITY = False  # compare undiscounted P(event) to price (APY covers TV)
 # NOTE: there is deliberately NO staleness-tolerance parameter for the model
 # PMF (transform/density.build_pmf_table requires an exact same-calendar-day
 # option chain; no forward/back-fill of any kind). This was a considered and
@@ -119,16 +118,21 @@ KALSHI_FEE_RATE = 0.035      # fee = ceil(rate * contracts * p * (1-p)) cents
 # which signals fire, not what they cost. Positions that instead run to year-end
 # settlement pay no exit fee, which makes this hurdle mildly conservative.
 FEE_ROUND_TRIP_FILLS = 2
-KALSHI_APY = 0.0375          # yield on cash + open positions, accrued monthly
-# Risk-free hurdle for Sharpe/alpha. Set to the KALSHI APY, not an external
-# T-bill rate: the capital backing this strategy sits in a Kalshi account, where
-# doing nothing at all earns KALSHI_APY. That is the genuine opportunity cost, so
-# it is the rate the strategy must beat. Using a lower external rate credits the
-# strategy with (KALSHI_APY - rate) per year of excess it did not generate --
-# at 3% that was 0.75%/yr of spurious alpha. Metrics additionally report the
-# return NET of the accrued APY (`*_ex_apy`), which isolates the mispricing edge
-# from the platform carry; the gap is large (2024 BL Sharpe 1.34 vs 0.18).
-BENCH_RF = KALSHI_APY        # annual risk-free rate for Sharpe/alpha benchmarking
+# Kalshi interest. Kalshi began paying interest on cash and open positions on
+# 10 October 2024, at a variable 4.05% APY (news.kalshi.com, "interest on cash and
+# open positions"). Nothing was paid before that date, so 2022, 2023 and most of
+# 2024 earn no platform interest at all. Only the posted collateral of open
+# positions is assumed to sit at Kalshi (see metrics.excess_value): idle cash is
+# assumed to earn the risk-free rate elsewhere, so the interest that matters is
+# the one on collateral, and the rate is held at its announced level after the
+# start date because the later path is not in the data.
+KALSHI_INTEREST_START = "2024-10-10"
+KALSHI_INTEREST_RATE = 0.0405
+# Risk-free rate. Not a constant: each day uses the rate implied by that day's
+# option chain, r = -ln(DF)/T (clean.py), which is a T-bill-like rate to the same
+# year-end expiry the Kalshi contracts settle on. It averages 3.8% / 5.5% / 5.3%
+# over the 2022 / 2023 / 2024 windows, so a single hard-coded rate would be wrong
+# by up to 1.7 points in some year.
 TRADING_DAYS = 252           # annualization factor (consistent across strat + bench)
 
 YEARS = (2022, 2023, 2024)

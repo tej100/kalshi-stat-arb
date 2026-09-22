@@ -59,10 +59,10 @@ def main(reps=2000):
             s = metrics.summarize(m, chain, y, n_trades=m.attrs["n_executed"], kalshi=k)
             ci = metrics.sharpe_bootstrap_ci(m, chain, y, reps=reps, kalshi=k)
             rows.append(dict(variant=name, year=y, sharpe=s["sharpe"], ci_lo=ci["lo"], ci_hi=ci["hi"],
-                             ann_return=s["ann_return"], ann_return_ex_apy=s["ann_return_ex_apy"],
+                             ann_excess=s["ann_excess"], ann_carry=s["ann_carry"],
                              max_dd=s["max_dd"], signals=len(tr), fills=m.attrs["n_executed"]))
     R = pd.DataFrame(rows)
-    show = R.assign(ann_return=(R.ann_return * 100).round(2), ann_return_ex_apy=(R.ann_return_ex_apy * 100).round(2),
+    show = R.assign(ann_excess=(R.ann_excess * 100).round(2), ann_carry=(R.ann_carry * 100).round(2),
                     max_dd=(R.max_dd * 100).round(2)).round(2)
     print(show.to_string(index=False))
     spread = R.pivot(index="year", columns="variant", values="sharpe")

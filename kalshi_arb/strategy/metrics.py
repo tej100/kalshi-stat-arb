@@ -10,7 +10,7 @@ a calendar-daily series, which the 252 annualization factor does not describe.
 Weekend rows are not inert either -- 49-88 of them per year carry a genuine
 non-zero mark. Two things therefore go wrong if the raw index is used:
 
-  1. ann_return/ann_vol are scaled by 252 while the series has ~365 obs/yr.
+  1. annualised return/vol are scaled by 252 while the series has ~365 obs/yr.
   2. The SPX benchmark only exists on trading days, so reindexing it onto the
      Kalshi calendar forward-fills 124-142 artificial zero-return rows per year,
      which shrinks cov(strategy, SPX) and biases beta toward zero.
@@ -20,11 +20,45 @@ correctly absorbs the weekend move (the standard equity convention), and the
 benchmark is then real on every row. The trading calendar is taken from the
 option chain's own quote dates, so it is data-derived (no hard-coded holiday
 list) and identical to the benchmark's calendar by construction.
+
+EXCESS RETURNS AND CARRY -- every risk-adjusted statistic is computed on the
+return in EXCESS of the risk-free rate, built by `excess_value`. The account is
+treated as two pieces: the collateral posted for open positions, which has to
+sit at Kalshi, and the idle cash, which is assumed to earn the risk-free rate
+elsewhere. Idle cash therefore earns exactly rf and contributes nothing to the
+excess return; the collateral earns Kalshi's rate (zero before 2024-10-10) and
+so costs (rf - Kalshi rate) per year while it is posted. The daily excess P&L is
+
+    trading P&L  +  Kalshi interest on collateral  -  rf * collateral.
+
+The risk-free rate is the option-implied rate of the day (config), so no rate
+is subtracted again in the Sharpe ratio or the alpha regression.
 """
 from __future__ import annotations
 import numpy as np
 import pandas as pd
 from .. import config
+
+
+def rf_series(chain, index_like) -> pd.Series:
+    """Option-implied risk-free rate (annual, continuous) on each date of `index_like`,
+    carried forward from the most recent quote date."""
+    r = chain.drop_duplicates("quote").set_index("quote")["r"].sort_index()
+    idx = pd.DatetimeIndex(index_like)
+    return r.reindex(r.index.union(idx)).ffill().bfill().reindex(idx)
+
+
+def excess_value(m: pd.DataFrame, chain) -> pd.Series:
+    """Account value in excess of the risk-free rate (see module docstring).
+
+    `portfolio_value` already holds trading P&L and Kalshi's interest on the
+    posted collateral; this subtracts the cost of capital on that collateral,
+    accrued daily at the previous day's option-implied rate. On a day with no
+    open positions the excess P&L is exactly the trading P&L, which is zero."""
+    rf = rf_series(chain, m.index)
+    days = m.index.to_series().diff().dt.days.fillna(0)
+    charge = (rf.shift().bfill() * m["collateral"].shift().fillna(0) * days / 365.0).cumsum()
+    return m["portfolio_value"] - charge
 
 
 def _daily_returns(level: pd.Series) -> pd.Series:
@@ -99,27 +133,41 @@ def spx_benchmark(chain, year, index_like) -> pd.Series:
 
 
 def summarize(m: pd.DataFrame, chain, year, n_trades=None, kalshi=None) -> dict:
-    """Compute the performance row for one backtest result `m`."""
-    pv = m["portfolio_value"]
-    rf_d = config.BENCH_RF / config.TRADING_DAYS
+    """Compute the performance row for one backtest result `m`.
+
+    `ann_excess` is the annualised excess return and `sharpe` = ann_excess /
+    ann_vol. It splits into `ann_trading` (trading P&L alone) and `ann_carry`
+    (Kalshi interest on collateral minus its cost of capital, negative whenever
+    Kalshi pays less than rf); the three are computed on the same denominator,
+    so ann_excess = ann_trading + ann_carry exactly."""
+    ev = excess_value(m, chain)
     # Return statistics are sampled on trading days so that the x252 factor
     # describes the series (see module docstring); the drawdown below stays on
     # the FULL calendar path, since a trough reached over a weekend is a real
     # drawdown the position lived through and is not an annualized quantity.
     td = trading_days(chain, year, m.index, kalshi)
-    rs = _daily_returns(pv.loc[td])
+    evt = ev.loc[td]
+    rs = _daily_returns(evt)
 
-    ann_ret = rs.mean() * config.TRADING_DAYS
+    ann_ex = rs.mean() * config.TRADING_DAYS
     ann_vol = rs.std() * np.sqrt(config.TRADING_DAYS)
-    sharpe = (ann_ret - config.BENCH_RF) / ann_vol if ann_vol > 0 else np.nan
-    max_dd = ((pv - pv.cummax()) / pv.cummax()).min()
+    sharpe = ann_ex / ann_vol if ann_vol > 0 else np.nan
+    max_dd = ((ev - ev.cummax()) / ev.cummax()).min()
+
+    trade_pnl = (m["portfolio_value"] - m["interest"]).loc[td].diff()
+    carry_pnl = evt.diff() - trade_pnl
+    base = evt.shift()
+    ann_trading = (trade_pnl / base).dropna().mean() * config.TRADING_DAYS
+    ann_carry = (carry_pnl / base).dropna().mean() * config.TRADING_DAYS
 
     spx = spx_benchmark(chain, year, td)
-    rm = _daily_returns(spx)
+    rf = rf_series(chain, td)
+    gap = td.to_series().diff().dt.days
+    rm = (_daily_returns(spx) - (rf.shift() * gap / 365.0)).dropna()
     idx = rs.index.intersection(rm.index)
     beta = alpha = alpha_t = beta_t = np.nan
     if len(idx) > 2:
-        a, b = rs.loc[idx] - rf_d, rm.loc[idx] - rf_d
+        a, b = rs.loc[idx], rm.loc[idx]
         var = b.var()
         beta = a.cov(b) / var if var > 0 else np.nan
         alpha = a.mean() - beta * b.mean()            # daily alpha
@@ -127,34 +175,23 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None, kalshi=None) -> dict:
             _, _, alpha_t, beta_t = _newey_west_t(a.values, b.values)
 
     rmod = _daily_returns(m["model_value"].loc[td])
-    j = rs.index.intersection(rmod.index)
-    model_rho = rs.loc[j].corr(rmod.loc[j]) if len(j) > 2 else np.nan
-
-    # Return NET of the accrued Kalshi APY -- an ATTRIBUTION figure, splitting
-    # the headline return into passive platform carry and actual trading P&L.
-    #
-    # There is deliberately no second "ex-APY Sharpe" here. Because BENCH_RF is
-    # set to KALSHI_APY, the headline `sharpe` ALREADY measures excess over the
-    # carry (holding cash on Kalshi is the risk-free alternative, and it earns
-    # exactly that yield). Subtracting the risk-free rate again from a series
-    # that has had the carry removed double-counts it and reads far too harsh --
-    # 2024 BL both-side would show -0.11 rather than its correct 1.03. Use
-    # `sharpe` for risk-adjusted performance and `ann_return_ex_apy` only to say
-    # how much of the raw return was carry.
-    ex = pv - m["interest"] if "interest" in m else pv
-    rx = _daily_returns(ex.loc[td])
-    ann_ret_ex = rx.mean() * config.TRADING_DAYS
+    rpv = _daily_returns(m["portfolio_value"].loc[td])
+    j = rpv.index.intersection(rmod.index)
+    model_rho = rpv.loc[j].corr(rmod.loc[j]) if len(j) > 2 else np.nan
 
     # Total return INCLUDING the year-end settlement payoff (the MTM path above
-    # is pre-settlement; ann_return/Sharpe are path metrics, total_return is the
-    # realized end-to-end result once held buckets settle).
+    # is pre-settlement; ann_excess/Sharpe are path metrics, total_return is the
+    # realized end-to-end result once held buckets settle). It is the nominal
+    # P&L of the Kalshi account itself -- trades, fees, settlement and Kalshi
+    # interest -- and excludes the rf earned on idle cash held elsewhere.
+    pv = m["portfolio_value"]
     start = pv.iloc[0]
     final_value = m.attrs.get("final_value", pv.iloc[-1])
     total_return = final_value / start - 1 if start else np.nan
 
     return dict(
-        ann_return=ann_ret, ann_vol=ann_vol, sharpe=sharpe, max_dd=max_dd,
-        ann_return_ex_apy=ann_ret_ex,
+        ann_excess=ann_ex, ann_vol=ann_vol, sharpe=sharpe, max_dd=max_dd,
+        ann_trading=ann_trading, ann_carry=ann_carry, rf_mean=float(rf.mean()),
         alpha_daily=alpha, alpha_ann=alpha * config.TRADING_DAYS, alpha_t=alpha_t,
         beta=beta, beta_t=beta_t, model_rho=model_rho,
         settlement=m.attrs.get("settlement", np.nan),
@@ -181,7 +218,7 @@ def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
     """
     rng = np.random.default_rng(seed)
     td = trading_days(chain, year, m.index, kalshi)
-    r = _daily_returns(m["portfolio_value"].loc[td])
+    r = _daily_returns(excess_value(m, chain).loc[td])
     v = r.values
     n = len(v)
     if n < 30:
@@ -189,7 +226,7 @@ def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
 
     def _sharpe(x):
         ar, av = x.mean() * config.TRADING_DAYS, x.std() * np.sqrt(config.TRADING_DAYS)
-        return (ar - config.BENCH_RF) / av if av > 0 else np.nan
+        return ar / av if av > 0 else np.nan
 
     out = np.empty(reps)
     for i in range(reps):
@@ -217,21 +254,21 @@ def sharpe_at_frequency(m: pd.DataFrame, chain, year, step: int, kalshi=None) ->
     if step <= 1:
         raise ValueError("step must be > 1 (use `summarize` for the daily Sharpe)")
     td = trading_days(chain, year, m.index, kalshi)
-    pv = m["portfolio_value"].loc[td]
+    pv = excess_value(m, chain).loc[td]
     per = config.TRADING_DAYS / step
     out = []
     for off in range(step):
         r = _daily_returns(pv.iloc[off::step])
         if len(r) >= 5 and r.std() > 0:
-            out.append((r.mean() * per - config.BENCH_RF) / (r.std() * np.sqrt(per)))
+            out.append(r.mean() * per / (r.std() * np.sqrt(per)))
     return float(np.mean(out)) if out else np.nan
 
 
 def format_table(records: list[dict]) -> pd.DataFrame:
     """records: list of dicts with year, model, side + summarize() output."""
     df = pd.DataFrame(records)
-    pct = ["ann_return", "ann_vol", "max_dd", "total_return", "ann_return_ex_apy",
-           "alpha_ann"]
+    pct = ["ann_excess", "ann_vol", "max_dd", "total_return", "ann_trading",
+           "ann_carry", "rf_mean", "alpha_ann"]
     for c in pct:
         df[c] = (df[c] * 100).round(2)
     # alpha_daily is a per-day PERCENT of ~0.01-0.06; two decimals would round most

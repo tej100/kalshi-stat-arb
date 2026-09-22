@@ -15,6 +15,7 @@ from statsmodels.tsa.stattools import adfuller
 from kalshi_arb import pipeline, run, config
 from kalshi_arb.extract import kalshi as ksrc
 from kalshi_arb.transform import density, kalshi_pmf
+from kalshi_arb.strategy import metrics
 
 ACTIVE_PROB = 0.03      # a bucket is "active" on a day if either side prices it > 3%
 MIN_ACTIVE_DAYS = 20    # only analyze buckets that are near-the-money enough to trade
@@ -95,22 +96,26 @@ def main():
 
     # ---- 3. P&L attribution: carry vs trading path vs settlement ----
     # The daily mark-to-market path is NOT all "convergence": it also contains the
-    # Kalshi APY accrued on the account (passive carry, earned by any idle balance),
-    # and it books a contract's drift toward its realised 0/1 outcome before the
-    # settlement step ever arrives. So three pieces are separated here, and the
-    # lead-lag question is answered by the regression in section 2, not by this split.
+    # carry on posted collateral (Kalshi interest, paid only from 2024-10-10, minus
+    # the cost of capital at the option-implied rate), and it books a contract's
+    # drift toward its realised 0/1 outcome before the settlement step arrives. So
+    # three pieces are separated here, and the lead-lag question is answered by the
+    # regression in section 2, not by this split.
     print("\n=== 3. P&L attribution (BL, both-side): carry / trading path / settlement ===")
     _, results, _ = run.full(chain=chain, kalshi=k, verbose=False)
     for y in config.YEARS:
         m = results[(y, "bl", "both")]
+        ev = metrics.excess_value(m, chain)
         start = m["portfolio_value"].iloc[0]
-        carry = m["interest"].iloc[-1]                                  # Kalshi APY credited
-        path = m["portfolio_value"].iloc[-1] - start - carry            # trading, marked to market
-        settle = m.attrs["final_value"] - m["portfolio_value"].iloc[-1]  # terminal settlement step
+        carry = ev.iloc[-1] - (m["portfolio_value"].iloc[-1] - m["interest"].iloc[-1])  # net carry
+        path = m["portfolio_value"].iloc[-1] - m["interest"].iloc[-1] - start           # trading, marked to market
+        settle = m.attrs["final_value"] - m["portfolio_value"].iloc[-1]                 # terminal settlement step
         tot = carry + path + settle
         print(f"  {y}: carry {carry:+6.2f}  trading path {path:+6.2f}  settlement {settle:+5.2f}  "
-              f"= {tot:+6.2f}  | settlement is {abs(settle)/(abs(carry)+abs(path)+abs(settle))*100:.0f}% "
-              f"and carry {abs(carry)/(abs(carry)+abs(path)+abs(settle))*100:.0f}% of |P&L|")
+              f"= {tot:+6.2f} in excess of rf  | settlement is "
+              f"{abs(settle)/(abs(carry)+abs(path)+abs(settle))*100:.0f}% and carry "
+              f"{abs(carry)/(abs(carry)+abs(path)+abs(settle))*100:.0f}% of |P&L|")
+
 
 if __name__ == "__main__":
     main()

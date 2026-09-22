@@ -11,7 +11,11 @@ removed -- it is not a valid bucket PMF; see the note near the table builder):
     vol so it ignores the skew the BL density captures.
 
 A bucket probability is the raw integral of the density over [L, U]; the
-undiscounted P(event) is compared to Kalshi prices (APY captures time value).
+undiscounted P(event) is compared to Kalshi prices. Strictly, a $1 claim paid at
+year-end is worth DF * P today when the collateral earns nothing; the difference
+averages 0.15c per bucket-day, well inside the two-fee entry hurdle, and moves
+Sharpe by about -0.1 when applied. The cost of tying up collateral is booked
+explicitly in the P&L instead (metrics.excess_value).
 """
 from __future__ import annotations
 import numpy as np
@@ -190,4 +194,22 @@ def build_pmf_table(chain, kalshi, method="bl"):
             if probs is not None:
                 template.loc[date] = pd.Series(probs)
         out[year] = template
+    return out
+
+
+def lag_pmf_table(pmf_table, lag=1):
+    """Shift each year's model PMF back by `lag` PRICED days (execution check).
+
+    Same-close execution assumes a trade fills at the Kalshi close of the day
+    whose option chain produced the signal. The option quotes are the day's last
+    quotes (likely the 4:15pm SPXW close) while the Kalshi candle closes at
+    4:00pm, so that assumption can carry up to 15 minutes of lookahead. With
+    lag=1, each priced day instead uses the model computed from the PREVIOUS
+    priced day's chain, and signals.generate re-tests it against that day's
+    Kalshi book, so every fill uses only information that existed before it.
+    Days the options did not trade stay unpriced, as in build_pmf_table."""
+    out = {}
+    for year, t in pmf_table.items():
+        priced = t.dropna(how="all")
+        out[year] = priced.shift(lag).reindex(t.index)
     return out

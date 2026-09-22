@@ -11,7 +11,8 @@ from .strategy import signals, backtest, metrics
 
 
 def full(chain=None, kalshi=None, methods=("bl", "gbm"),
-         sides=("both", "buy", "sell"), verbose=True):
+         sides=("both", "buy", "sell"), verbose=True, lag=0):
+    """lag > 0 runs the lookahead-free execution check (density.lag_pmf_table)."""
     if chain is None:
         chain = pipeline.build_chain(verbose=verbose)
     if kalshi is None:
@@ -19,6 +20,8 @@ def full(chain=None, kalshi=None, methods=("bl", "gbm"),
 
     # transform: each density method -> {year: date x bucket model PMF}
     pmf = {mth: density.build_pmf_table(chain, kalshi, method=mth) for mth in methods}
+    if lag:
+        pmf = {mth: density.lag_pmf_table(t, lag) for mth, t in pmf.items()}
 
     # strategy: signals -> backtest -> metrics, per model/year/side
     records, results = [], {}

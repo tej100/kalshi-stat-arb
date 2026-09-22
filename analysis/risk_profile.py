@@ -27,7 +27,7 @@ def main():
             m = backtest.run(tr, pmf, k, y)
             risk_rows.append(dict(model=method.upper(), year=y, **diagnostics.risk_summary(m)))
             td = metrics.trading_days(chain, y, m.index, k)
-            r1 = m["portfolio_value"].loc[td].pct_change().dropna()
+            r1 = metrics.excess_value(m, chain).loc[td].pct_change().dropna()
             freq_rows.append(dict(model=method.upper(), year=y,
                                   sharpe_daily=metrics.summarize(m, chain, y, kalshi=k)["sharpe"],
                                   sharpe_5day=metrics.sharpe_at_frequency(m, chain, y, 5, k),
