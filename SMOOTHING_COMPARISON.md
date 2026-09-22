@@ -30,13 +30,15 @@ the density pipeline is identical.
 
 | method | fit_rmse | overshoot | arb_neg | roughness | modes | verdict |
 |---|---|---|---|---|---|---|
-| **SABR** (Hagan, β=0.5) — **CHOSEN** | 0.004 | 0.99 | **0.002** | **2.16** | 1.7 | smoothest, ~arbitrage-free, 705/705 days calibrate |
-| **SVI** (Gatheral raw) — kept | 0.004 | 1.00 | **0.002** | 2.28 | 1.7 | ~arbitrage-free, flexible wings |
-| cubic smoothing spline | 0.005 | 0.99 | 0.027 | 2.38 | 2.0 | smooth but oversmooths wings |
-| polynomial (deg 4) | 0.004 | 1.00 | 0.024 | 2.63 | 2.2 | ok body, Runge in the wings |
-| LSQ spline (former default) | 0.002 | 1.00 | 0.031 | 2.75 | 2.7 | tight fit, spiky raw density, needs repair |
-| PCHIP (monotone) | 0.000 | 1.00 | 0.216 | 6.37 | 14 | **interpolates noise → 20% arbitrage** |
-| LOWESS | 0.003 | 0.98 | 0.013 | 27.2 | 97 | **density is pure noise** |
+| **SABR** (Hagan, β=0.5) — **CHOSEN** | 0.005 | 0.99 | **0.002** | **2.17** | 1.5 | smoothest, fewest modes, 705/705 days calibrate |
+| **SVI** (Gatheral raw) — kept | 0.004 | 0.99 | **0.002** | 2.19 | 1.7 | nearly as smooth, flexible wings |
+| cubic smoothing spline | 0.006 | 0.98 | **0.002** | 2.77 | 2.2 | smooth but oversmooths the skew |
+| LSQ spline (former default) | 0.002 | 1.00 | 0.022 | 2.41 | 2.3 | tight fit, spiky raw density, needs repair |
+| polynomial (deg 4) | 0.006 | 0.99 | 0.013 | 3.38 | 3.3 | ok body, Runge in the wings |
+| PCHIP (monotone) | 0.000 | 1.00 | 0.254 | 8.00 | 16 | **interpolates noise → 25% arbitrage** |
+| LOWESS | 0.004 | 0.98 | 0.017 | 31.2 | 106 | **density is pure noise** |
+
+(Re-run after the cleaning change that dropped one-sided quotes and the spread filter.)
 
 ## Findings
 1. **PCHIP and LOWESS are disqualified.** PCHIP interpolates every noisy point
@@ -45,14 +47,16 @@ the density pipeline is identical.
    density panels.
 2. **LSQ (production) is the noisiest of the *reasonable* methods.** Its raw
    density has boundary spikes (flat-extrapolation kinks) and a bumpy left
-   shoulder — it only looks clean in production because the isotonic + smoothing
-   repair fixes it afterward. It leans on that repair the most.
-3. **SABR and SVI are the smoothest and most arbitrage-free**, by construction —
-   they would produce a clean density *without* the isotonic/smoothing band-aids,
-   which could then be removed. SABR is nearly arbitrage-free (arb_neg 0.002);
-   SVI matches its smoothness with more flexible wings (5 params vs SABR's 3+β).
-4. Cubic/polynomial are middling: smooth in the body, but polynomial Runge-
-   oscillates in sparse wings and cubic oversmooths the skew.
+   shoulder — it only looks clean in production because the isotonic repair fixes
+   it afterward. It leans on that repair the most.
+3. **SABR and SVI are the smoothest and most arbitrage-free**, by construction.
+   Under SABR the raw density is non-negative inside the quoted strikes on all 705
+   days; the remaining 0.002 is the kink that flat-vol extrapolation puts at the last
+   quoted strike, which the isotonic projection repairs (the separate smoothing window
+   turned out to be inert and was removed). SVI matches its smoothness with more
+   flexible wings (5 params vs SABR's 3+β).
+4. Cubic/polynomial are middling: the cubic spline is now as arbitrage-free as SABR
+   but rougher and flattens the skew; the polynomial Runge-oscillates in sparse wings.
 
 ## Decision (implemented)
 **Global smoother = SABR** (`config.SMILE_METHOD = "sabr"`). It is the smoothest,
@@ -83,18 +87,19 @@ keeps a SABR signal only when SVI independently signals the same direction.
 
 | variant | 2022 Sharpe [95% CI] | 2023 Sharpe [95% CI] | 2024 Sharpe [95% CI] | fills 22 / 23 / 24 |
 |---|---|---|---|---|
-| SABR | 1.97 [0.23, 3.82] | 1.90 [−0.24, 3.72] | 0.68 [−0.85, 2.07] | 100 / 81 / 39 |
-| SVI | 1.95 [0.12, 3.94] | 2.45 [−0.12, 4.50] | 0.28 [−1.07, 1.49] | 89 / 93 / 41 |
-| average | 1.87 [0.10, 3.72] | 1.82 [−0.24, 3.53] | 0.48 [−1.11, 1.91] | 91 / 89 / 45 |
-| agreement | 2.09 [0.22, 4.04] | 1.85 [−0.26, 3.57] | 0.30 [−1.08, 1.50] | 83 / 74 / 37 |
+| SABR | 1.98 [0.23, 3.83] | 1.90 [−0.25, 3.65] | 0.55 [−1.03, 1.99] | 98 / 81 / 40 |
+| SVI | 2.06 [0.18, 4.07] | 2.47 [−0.11, 4.58] | 0.38 [−1.01, 1.63] | 95 / 87 / 47 |
+| average | 1.97 [0.21, 3.81] | 1.86 [−0.23, 3.62] | 0.54 [−1.10, 2.07] | 96 / 87 / 43 |
+| agreement | 2.21 [0.29, 4.23] | 1.90 [−0.21, 3.67] | 0.48 [−1.09, 1.85] | 81 / 73 / 36 |
 
 **The four are statistically indistinguishable, though not identical.** The largest
-Sharpe gap between any two variants is 0.22 / 0.63 / 0.40 by year, against confidence
-intervals about 3.5 Sharpe units wide. The one visible spread is BL 2023, where the
-point estimate runs from 1.82 (average) to 2.45 (SVI): the smile treatment moves that
+Sharpe gap between any two variants is 0.24 / 0.61 / 0.17 by year, against confidence
+intervals about 3.6 Sharpe units wide. The one visible spread is BL 2023, where the
+point estimate runs from 1.86 (average) to 2.47 (SVI): the smile treatment moves that
 single number by roughly ±0.3 around SABR's 1.90, so it should be quoted with its
-interval and not read as a property of the model. The densities do differ (mean
-absolute SABR−SVI bucket probability 0.41¢), so this is not a case of the toggle doing
+interval and not read as a property of the model. Pooled over the three years SVI gives
+1.64 against SABR's 1.44 (`analysis/sensitivity.py`). The densities do differ (mean
+absolute SABR−SVI bucket probability 0.40¢), so this is not a case of the toggle doing
 nothing. The agreement filter removes trades without improving results, so it is not
 worth its complexity.
 

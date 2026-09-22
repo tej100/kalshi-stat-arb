@@ -37,29 +37,34 @@ strike gap) and are excluded.
 
 ## Results
 
-4,257 bucket-days with a valid Kalshi book, same-day chain and two-sided quotes on every leg:
+4,326 bucket-days with a valid Kalshi book, same-day chain and two-sided quotes on every leg:
 
 | year | bucket-days | mean \|Kalshi − replication\| | option round-trip spread | Kalshi spread | edge > 0 after spreads | after Kalshi fee | also above replication error | replication error |
 |---|---|---|---|---|---|---|---|---|
-| 2022 | 1,196 | 2.81¢ | 42¢ | 3¢ | 0.3% | 0.2% | 0.2% | 0.36¢ |
-| 2023 | 2,043 | 3.33¢ | 23¢ | 1¢ | 6.6% | 5.7% | 2.1% | 1.11¢ |
-| 2024 | 1,018 | 2.31¢ | 26¢ | 2¢ | 0.3% | 0.1% | 0.0% | 0.78¢ |
-| all | 4,257 | 2.94¢ | 26¢ | 2¢ | 3.3% | 2.8% | 1.1% | 0.82¢ |
+| 2022 | 1,230 | 2.75¢ | 40¢ | 3¢ | 0.1% | 0.0% | 0.0% | 0.35¢ |
+| 2023 | 2,077 | 3.30¢ | 22¢ | 1¢ | 6.3% | 5.2% | 1.8% | 1.09¢ |
+| 2024 | 1,019 | 2.31¢ | 26¢ | 2¢ | 0.3% | 0.1% | 0.0% | 0.78¢ |
+| all | 4,326 | 2.91¢ | 26¢ | 2¢ | 3.1% | 2.5% | 0.9% | 0.81¢ |
 
 (Spreads are medians, in cents of a $1 bucket. Replication error is the mean `E_Q|gap|`.)
 
 **Reading it.**
+- **Kalshi stays inside the no-arbitrage band on 97.5% of bucket-days.** Buying the
+  replication at the option asks and selling it at the bids defines a band; a Kalshi price
+  outside it, after Kalshi's fee, would be a riskless cross-market arbitrage. That happens
+  on 2.5% of bucket-days, almost all in 2023, and by more than the replication's own
+  expected error on 0.9%. Option commissions are not included, so these are upper bounds.
 - **The two markets agree closely.** The average gap is about 3¢ and there is no persistent
   premium: the mean signed gap is +1.0¢, of which about 0.8¢ is the replication's own
-  expected bias (its signed mean payoff gap is −0.81¢), leaving +0.2¢.
-- **Almost none of the gap is capturable.** Replicating a bucket with options costs about
-  26¢ round trip against Kalshi's roughly 2¢ spread, so only 3.3% of bucket-days show any
-  positive edge after crossing spreads (median 0.9¢ when positive), and 1.1% beat the
-  replication's own error. 2023, with the tightest option markets, is the only year where
-  this is not close to zero.
-- **So this is a consistency check, not evidence of a tradable arbitrage.** The strategy's
-  profits come from statistical convergence (`DUAL_TRADING_ANALYSIS.md`), not from a
-  locked-in hedge.
+  expected bias (its signed mean payoff gap is −0.80¢), leaving +0.2¢.
+- **The band is wide because replication is expensive.** Replicating a bucket with options
+  costs about 26¢ round trip against Kalshi's roughly 2¢ spread; when an edge does appear
+  after crossing spreads its median is 0.9¢. 2023, with the tightest option markets, is the
+  only year where violations are not close to zero.
+- **So there is no riskless arbitrage, but that is the weakest form of efficiency.** Inside
+  the band the two prices still disagree by several cents, Kalshi does the correcting
+  (`DUAL_TRADING_ANALYSIS.md`), and trading those gaps on Kalshi alone is profitable at the
+  close (`RISK_PROFILE.md`, and the paper's Section 7).
 
 ## What changed from the earlier version
 

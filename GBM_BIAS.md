@@ -1,4 +1,6 @@
-# Why the GBM benchmark lost money in 2024
+# Why the GBM baseline lost money in 2024
+
+Reproduced by [`analysis/gbm_bias.py`](analysis/gbm_bias.py).
 
 ## Why GBM lost in 2024 (mathematical mechanism)
 
@@ -13,7 +15,7 @@ concentrates probability in the region within about one standard deviation of sp
 is exactly where the buckets sat:
 
     bucket (2024-11-19)   rel. to spot   GBM(ATM)   GBM(local IV)   BL(full smile)
-    5600-5799.99             -3.6%        20.0c        14.3c           10.7c
+    5600-5799.99             -3.6%        20.0c        14.3c           10.5c
     5400-5599.99             -7.0%         6.0c         6.9c            4.1c
     5000-5199.99            -13.7%         0.0c         2.1c            0.9c
 
@@ -33,6 +35,6 @@ applied to most of the board, and it reads overpricing as cheapness: 14 of its 1
 below-spot buckets, and those buys lost $4.72 of a $5.20 net loss. SPX then settled at
 5881.63, above EVERY bucket, so every long expired worthless.
 
-**It is not a forecasting failure in general.** Brier scores are close (2024: BL 5.59 vs GBM
-5.87 per thousand; 2022 GBM is actually better, 63.5 vs 67.9). The damage is specific to
+**It is not a forecasting failure in general.** Brier scores are close (2024: BL 5.49 vs GBM
+5.88 per thousand; 2022 GBM is actually better, 63.5 vs 66.5). The damage is specific to
 which trades the bias generated, not to broad calibration.

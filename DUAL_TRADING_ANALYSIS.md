@@ -47,12 +47,12 @@ so we must decompose which one actually drives returns.
 ## 3. Empirical findings
 
 ### 3.1 The spread is mean-reverting and reverts to ~zero
-- **58%** of 31 active buckets reject a unit root (ADF, 5%) — moderate but real
+- **55%** of 31 active buckets reject a unit root (ADF, 5%) — moderate but real
   evidence of stationarity given ~240 daily obs/year (ADF has low power in short
   samples, so this understates it).
 - **Mean spread ≈ +0.003 (0.3¢), median |mean| ≈ 0.8¢** — the spread reverts to
   essentially **zero**, not to a persistent biased premium.
-- **Half-life ≈ 5 trading days** (median 5.0, IQR 3.7–8.1) once bid-ask bounce is
+- **Half-life ≈ 5 trading days** (median 4.9, IQR 3.7–7.9) once bid-ask bounce is
   removed. The plain AR(1) fit gives 2.0 days (IQR 1.2–3.0), but that estimate is
   biased: bounce in the Kalshi mid is noise that appears in both the spread level
   and its next-day change, which mechanically looks like reversion. Instrumenting
@@ -61,22 +61,21 @@ so we must decompose which one actually drives returns.
 
 ### 3.2 Kalshi is the laggard — it does the correcting (the key result)
 Error-correction test on 2,344 bucket-days (change in each venue regressed on
-the current spread):
+the current spread; t-statistics clustered by date, two-way date × bucket in brackets):
 
 | Change | Coef vs spread | t-stat | Interpretation |
 |---|---|---|---|
-| Kalshi, t → t+1 | −0.186 | −21.8 | inflated: shares the Kalshi mid at t with the spread |
-| **Kalshi, t+1 → t+2** | **−0.043** | **−4.6** | no shared endpoint, so bounce cannot produce it (n = 2,188) |
-| Options (model), t → t+1 | −0.001 | −0.1 | options do not move toward Kalshi at all |
+| Kalshi, t → t+1 | −0.182 | −6.2 [−4.8] | inflated: shares the Kalshi mid at t with the spread |
+| **Kalshi, t+1 → t+2** | **−0.040** | **−2.7 [−3.2]** | no shared endpoint, so bounce cannot produce it (n = 2,188 over 415 dates) |
+| Options (model), t → t+1 | +0.004 | +0.2 [+0.7] | options do not move toward Kalshi at all |
 
 **The spread correction is done by the Kalshi leg**, and the options market does
 not move toward Kalshi. That direction is the finding and it survives the bounce
 correction. The size does not: the next-day regression puts the Kalshi mid at time
 t on both sides, so any bid-ask bounce in it reverts mechanically. Measured one day
 later, where no endpoint is shared, the coefficient is about a quarter as large,
-which means Kalshi closes roughly 4% of a gap per day rather than 19%. The
-t-statistics are plain OLS and should be read as an upper bound on significance
-(see section 6).
+which means Kalshi closes roughly 4% of a gap per day rather than 18%. With standard
+errors clustered by date it remains significant (t = −2.7; −3.2 two-way).
 
 ### 3.3 What the P&L is made of
 The daily mark-to-market path is **not** all "Kalshi converging to the options
@@ -85,9 +84,9 @@ mislabelled the first as convergence. For the BL both-side backtest:
 
 | Year | Net carry on collateral | Trading path (marked to market) | Settlement step | Total, in excess of rf |
 |---|---|---|---|---|
-| 2022 | −0.88 | +18.88 | +0.72 | +18.72 |
-| 2023 | −3.84 | +17.35 | +1.12 | +14.63 |
-| 2024 | −2.93 | +6.07 | +0.72 | +3.86 |
+| 2022 | −0.88 | +18.92 | +0.72 | +18.76 |
+| 2023 | −3.87 | +17.28 | +1.12 | +14.53 |
+| 2024 | −2.92 | +5.38 | +0.80 | +3.26 |
 
 - **Carry is a cost, not a source of return.** Kalshi paid no interest before
   10 October 2024 (4.05% after), so the collateral posted for open positions earned
@@ -95,7 +94,7 @@ mislabelled the first as convergence. For the BL both-side backtest:
   three windows). Idle cash is assumed to earn rf elsewhere and so nets to zero.
   An earlier version of this note credited a 3.75% APY in every year and showed carry
   as 25–52% of profit; that APY did not exist over most of the sample.
-- **Settlement (3–5%)** is small because most positions have already priced toward
+- **Settlement (4–9%)** is small because most positions have already priced toward
   0 or 1 before expiry, not because the edge is unrelated to the outcome.
 - **The trading path** is where the strategy's edge lives, but it combines two
   things this decomposition cannot separate: Kalshi re-pricing toward the options
@@ -134,7 +133,7 @@ help this strategy and would most likely reduce net performance**:
    execution, margin, and management burden. See [`HEDGING.md`](HEDGING.md).
 3. **The hedge's theoretical benefit is nearly irrelevant here.** Dual-trading's
    real advantage is converting a forecast bet into a *settlement-guaranteed*
-   arbitrage. But settlement is only 4–7% of P&L and the spread half-life is about
+   arbitrage. But settlement is only 4–9% of P&L and the spread half-life is about
    a week, so the guarantee buys little while costing spread + basis. (A slower
    convergence than first estimated makes this point weaker, not void: a week of
    exposure to Kalshi-specific risk is still not what an options hedge removes.)
@@ -171,11 +170,11 @@ not from a locked-in hedge.
 ## 6. Caveats (state these in the paper)
 - **3-year sample**; ADF and error-correction estimates have wide confidence
   intervals. Treat magnitudes as indicative and the direction as the finding.
-- **The reported t-statistics are plain OLS and overstate significance.** The
-  2,344 bucket-days are serially dependent within a bucket and cross-sectionally
-  dependent within a day (all buckets derive from one density). Bid-ask bounce is
-  now handled (the t+1 → t+2 regression and the instrumented half-life), but
-  clustered standard errors are not yet done.
+- **Dependence is handled, not eliminated.** The 2,344 bucket-days are serially
+  dependent within a bucket and cross-sectionally dependent within a day (all buckets
+  derive from one density). Standard errors are clustered by date (and two-way by date
+  and bucket as a check), and bid-ask bounce is handled by the t+1 → t+2 regression and
+  the instrumented half-life.
 - **Timestamps are not perfectly aligned.** The option quotes are the day's last
   quotes (probably the 4:15pm SPXW close) and the Kalshi candle closes at 4:00pm,
   so a same-day spread can contain up to 15 minutes of option-market news that

@@ -1,0 +1,27 @@
+\begin{tabular}{llrrrcr}
+& Variant & 2022 & 2023 & 2024 & Pooled [95\% CI] & MAE \\
+\hline
+Headline & as in the paper & 1.98 & 1.90 & 0.55 & 1.44 [0.36,\,2.49] & \$1.99 \\
+\hline
+Cleaning & spread filter 30\% of mid & 1.89 & 1.90 & 0.68 & 1.45 [0.38,\,2.49] & \$1.85 \\
+ & moneyness cut 3 sigma & 2.00 & 1.68 & 0.61 & 1.39 [0.31,\,2.47] & \$2.08 \\
+ & no moneyness cut & 1.91 & 1.66 & 0.62 & 1.36 [0.30,\,2.41] & \$2.09 \\
+\hline
+Smile & SABR $\beta$ = 0 & 1.97 & 1.99 & 0.50 & 1.46 [0.40,\,2.48] & \$1.93 \\
+ & SABR $\beta$ = 1 & 1.57 & 1.68 & 0.55 & 1.23 [0.16,\,2.28] & \$2.22 \\
+ & SABR wings (no flat extrapolation) & 1.98 & 1.90 & 0.55 & 1.44 [0.36,\,2.49] & \$1.99 \\
+ & SVI instead of SABR & 2.06 & 2.47 & 0.38 & 1.64 [0.53,\,2.73] & \$1.90 \\
+\hline
+Sizing & lot of 1 contract (capital \$25) & 1.32 & 1.61 & 0.34 & 1.04 [0.03,\,2.05] & \$1.99 \\
+ & lot of 4 contracts (capital \$100) & 1.87 & 1.72 & 0.47 & 1.31 [0.23,\,2.40] & \$1.99 \\
+ & lot of 16 contracts (capital \$400) & 2.02 & 1.93 & 0.57 & 1.47 [0.40,\,2.51] & \$1.99 \\
+\hline
+Costs & current Kalshi fee (0.07) & 1.51 & 1.66 & 0.40 & 1.16 [0.10,\,2.21] & \$1.99 \\
+\hline
+Exit rule & convergence exit & 1.91 & 1.99 & 0.59 & 1.46 [0.43,\,2.49] & \$1.99 \\
+\hline
+Execution & model 1 day old & 0.67 & $-$0.13 & 0.52 & 0.32 [$-$0.70,\,1.34] & \$1.99 \\
+ & model 2 days old & 0.00 & $-$0.22 & 0.37 & 0.03 [$-$0.97,\,1.05] & \$1.99 \\
+\hline
+Marking & stale marks to model & 2.15 & 0.99 & 0.44 & 1.04 [0.19,\,1.90] & \$1.99 \\
+\end{tabular}

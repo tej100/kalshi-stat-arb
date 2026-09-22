@@ -20,11 +20,10 @@ subgraph CL["② CLEAN — clean.clean_chain()"]
   RAW --> C1["1 · drop rows missing Bid AND Ask AND IV"]
   C1 --> C2["2 · _restrict_to_current_year_expiry<br/>keep exp.year == quote.year (drops Dec roll-over)"]
   C2 --> C3["3 · _transform (units + derived)<br/>IV÷100 · T÷365 · r = −ln(DF)/T<br/>underlying = spot − div·DF · forward = underlying·e^(rT)<br/>moneyness = K/F (call) or 2−K/F (put)"]
-  C3 --> C4["4 · _mid_price<br/>both sides → (Bid+Ask)/2<br/>one side → present/2, kept iff |BSM(vendorIV) − Mid| ≤ $0.50"]
-  C4 --> C5["5 · liquidity filter<br/>drop both-sided where (Ask−Bid)/Mid > 0.30"]
-  C5 --> C6["6 · moneyness filter<br/>drop |moneyness − μ| > 2σ<br/>(μ, σ within each quote date: no look-ahead)"]
-  C6 --> C7["7 · _drop_arbitrage_violations<br/>keep intrinsic ≤ Mid ≤ upper (exact no-arb box)"]
-  C7 --> C8["8 · _backfill_iv<br/>IV missing & Mid ok → bisection-invert BSM"]
+  C3 --> C4["4 · _mid_price<br/>Mid = (Bid+Ask)/2<br/>one-sided quotes dropped (no mid)"]
+  C4 --> C6["5 · moneyness filter<br/>drop |moneyness − μ| > 2σ<br/>(μ, σ within each quote date: no look-ahead)"]
+  C6 --> C7["6 · _drop_arbitrage_violations<br/>keep intrinsic ≤ Mid ≤ upper (exact no-arb box)"]
+  C7 --> C8["7 · _backfill_iv<br/>IV missing & Mid ok → bisection-invert BSM"]
   C8 --> CLEAN["CLEAN CHAIN<br/>+ IV, r, spot, forward, moneyness, Mid"]
 end
 
@@ -46,7 +45,7 @@ end
 subgraph DEN["⑤ DENSITY — density.build_pmf_table(method) · EXACT same-calendar-day chain only (no fill)"]
   PRICED --> D0{{"for each year,<br/>each Kalshi date with a same-day chain"}}
   CURVE -. "same fit_daily_smile" .-> DBL
-  D0 --> DBL["bl_density  (PRIMARY)<br/>grid = [k_min−2000 , k_max+1000] × 5000<br/>σ = eval_smile(grid) · C = BSM_call(S,grid,T,r,σ)<br/>fp = clip(dC/dK, −DF, 0) → isotonic ↑ (convex C)<br/>dens = clip(e^(rT)·d²C/dK², 0) → smooth(25) → trim<br/>P([L,U]) = ∫ dens"]
+  D0 --> DBL["bl_density  (PRIMARY)<br/>grid = [k_min−2000 , k_max+1000] × 5000<br/>σ = eval_smile(grid) · C = BSM_call(S,grid,T,r,σ)<br/>fp = clip(dC/dK, −DF, 0) → isotonic ↑ (convex C)<br/>dens = clip(e^(rT)·d²C/dK², 0) → trim<br/>P([L,U]) = ∫ dens"]
   D0 --> DGB["gbm_pmf  (benchmark)<br/>σ = LSQ_Vol at strike nearest F (ATM)<br/>lognormal: P = Φ(d(U)) − Φ(d(L)), S0 = underlying"]
   DBL --> MPMF["MODEL PMF · date × bucket<br/>bucket priced only if it overlaps [k_min,k_max] (coverage guard), else NaN"]
   DGB --> MPMF
@@ -74,7 +73,7 @@ end
 subgraph AN["⑧ COINTEGRATION — analysis/cointegration.py (lead-lag study)"]
   KAL --> KP["kalshi_pmf.market_pmf<br/>mid of a valid book;<br/>empty book (bid ≤ 2c & ask ≥ 98c) or missing → NaN"]
   KP --> KPMF["MARKET PMF · date × bucket"]
-  KPMF --> C1["spread = Kalshi mid − model p<br/>ADF · half-life · error-correction (who leads)"]
+  KPMF --> C1["spread = Kalshi mid − model p<br/>ADF · bounce-robust half-life · error-correction (who leads), SEs clustered by date"]
   MPMF --> C1
 end
 
