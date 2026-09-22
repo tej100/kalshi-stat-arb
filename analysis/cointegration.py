@@ -32,6 +32,28 @@ def half_life(s):
     return np.inf if beta >= 0 else -np.log(2) / np.log(1 + beta)
 
 
+def half_life_iv(s):
+    """Half-life robust to bid-ask bounce in the Kalshi mid.
+
+    Bounce is measurement noise e_t on the observed spread. In the plain AR(1)
+    fit it sits in both the regressor s_t and the change s_{t+1} - s_t, which
+    pulls the slope toward -1 and makes reversion look faster than it is. Using
+    s_{t-1} as an instrument for s_t removes it, since white noise at t is
+    uncorrelated with the spread one day earlier:
+        phi = cov(s_{t+1}, s_{t-1}) / cov(s_t, s_{t-1}).
+    """
+    s = s.dropna()
+    if len(s) < 15:
+        return np.nan
+    a, b, c = s.shift(-1), s, s.shift(1)
+    v = a.notna() & c.notna()
+    den = np.cov(b[v], c[v])[0, 1]
+    if abs(den) < 1e-12:
+        return np.nan
+    phi = np.cov(a[v], c[v])[0, 1] / den
+    return np.inf if not 0 < phi < 1 else -np.log(2) / np.log(phi)
+
+
 def adf_p(s):
     s = s.dropna()
     if len(s) < 15 or s.std() < 1e-6:
@@ -49,7 +71,7 @@ def main():
     market = {y: kalshi_pmf.market_pmf(k, y) for y in k}            # Kalshi mid PMF
 
     # ---- 1. spread stationarity + half-life, per active bucket ----
-    rows, dk, dm, sp = [], [], [], []
+    rows, dk, dm, sp, dk2 = [], [], [], [], []
     for y in k:
         mdl, mkt = model[y], market[y]
         common = mdl.index.intersection(mkt.index)
@@ -61,12 +83,15 @@ def main():
                 continue
             rows.append(dict(year=y, bucket=b, n=int(spread.dropna().shape[0]),
                              mean_spread=spread.mean(), adf_p=adf_p(spread),
-                             half_life=half_life(spread)))
+                             half_life=half_life(spread), half_life_iv=half_life_iv(spread)))
             # pooled next-day changes vs current spread, for the direction test
             v = spread.notna() & mm.diff().shift(-1).notna() & dd.diff().shift(-1).notna() & active
             sp += spread[v].tolist()
             dk += mm.diff().shift(-1)[v].tolist()
             dm += dd.diff().shift(-1)[v].tolist()
+            # the same change one day later (t+1 -> t+2) shares no endpoint with the
+            # spread at t, so bid-ask bounce in the Kalshi mid cannot produce it
+            dk2 += mm.diff().shift(-2)[v].tolist()
 
     df = pd.DataFrame(rows)
     df["stationary"] = df["adf_p"] < 0.05
@@ -77,7 +102,11 @@ def main():
     print(f"mean spread (Kalshi-model):  {df['mean_spread'].mean():+.4f}  "
           f"(|median| {df['mean_spread'].abs().median():.4f}) -> reverts to ~0")
     print(f"half-life (days):            median {fin['half_life'].median():.1f}  "
-          f"[{fin['half_life'].quantile(.25):.1f}-{fin['half_life'].quantile(.75):.1f} IQR]")
+          f"[{fin['half_life'].quantile(.25):.1f}-{fin['half_life'].quantile(.75):.1f} IQR]  (plain AR(1))")
+    fiv = df[np.isfinite(df["half_life_iv"])]
+    print(f"half-life, bounce-robust:    median {fiv['half_life_iv'].median():.1f}  "
+          f"[{fiv['half_life_iv'].quantile(.25):.1f}-{fiv['half_life_iv'].quantile(.75):.1f} IQR]  "
+          f"({len(fiv)} of {len(df)} buckets finite)")
 
     # ---- 2. direction of adjustment (which venue error-corrects) ----
     sp, dk, dm = np.array(sp), np.array(dk), np.array(dm)
@@ -93,6 +122,10 @@ def main():
     print("  (plain OLS t-stats: bucket-days are serially and cross-sectionally dependent and the")
     print("   Kalshi mid carries bid-ask bounce, so treat them as an upper bound on significance.)")
     print(f"share of correction by KALSHI leg: {abs(bk)/(abs(bk)+abs(bm))*100:.0f}%")
+    dk2 = np.array(dk2); ok = ~np.isnan(dk2)
+    r2 = sm.OLS(dk2[ok], sm.add_constant(sp[ok])).fit()
+    print(f"d(Kalshi) t+1->t+2 ~ spread: coef {r2.params[1]:+.3f}  t {r2.tvalues[1]:+.1f}  n {ok.sum()}  "
+          f"(no shared endpoint: bounce-free)")
 
     # ---- 3. P&L attribution: carry vs trading path vs settlement ----
     # The daily mark-to-market path is NOT all "convergence": it also contains the

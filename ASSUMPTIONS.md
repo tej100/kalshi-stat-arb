@@ -91,7 +91,7 @@ smoother — see the unification note below.
 | Edge trim | drop 2 grid points each end | `bl_density` | np.gradient boundary error |
 | GBM law | lognormal, S₀ = **spot** (adj), drift (r−½σ²)T | `gbm_pmf` | correct reading of paper's d₂ (which carries r-drift ⇒ spot, not forward) |
 | GBM σ | smoothed ATM IV (strike nearest F) | `_atm_vol` | single diffusion parameter |
-| `DISCOUNT_PROBABILITY` | **False** | config | compare undiscounted P(event) to Kalshi price; APY captures time value |
+| Undiscounted P(event) | compared directly to the Kalshi price | `density` | a $1 year-end claim is strictly worth DF·P when collateral earns nothing; the gap averages 0.15¢ per bucket-day, inside the entry hurdle, and moves Sharpe by about −0.1 when applied. The cost of posting collateral is instead charged explicitly in `metrics.excess_value` |
 | **Calendar matching** | **strict same-day, hard rule (no parameter)**: a NEW position requires a genuine same-calendar-day quote from BOTH the option chain and Kalshi | `build_pmf_table` | **design decision, not a data-gap workaround** — see below |
 | Same-Kalshi-year expiry | option rows filtered to `exp.year == quote.year` | `transform/clean.py` | drops the late-Dec expiry-rollover window where the raw feed only has next year's ~365-day contract |
 
@@ -139,8 +139,9 @@ smoother — see the unification note below.
 | `LOT_SIZE` | **8** contracts | config | paper's tuned lot (fee-efficiency vs liquidity) |
 | **`MAX_LOTS_PER_BUCKET`** | **1** (no pyramiding) | config | **risk-managed design**: cap per-bucket exposure so PV stays > 0 and metrics are well-defined |
 | `START_CASH` | **$200** | config | buffer for consecutive losses on the small base |
-| `KALSHI_FEE_RATE` | **0.035** | config | fee = ⌈0.035·C·p·(1−p)·100⌉/100 $ per lot. This is the taker rate **in force over the 2022–2024 sample**, which is what the backtest must charge. Kalshi's *current* schedule is 0.07 taker / 0.0175 maker, so limit orders are no longer fee-free; results are robust to the change (BL both-side Sharpe 1.53/1.92/0.81 at 0.07, versus 1.99/2.25/1.08 at 0.035) |
-| `KALSHI_APY` | **3.75%**, monthly | config, `backtest.run` | yield on cash **and** open positions |
+| `KALSHI_FEE_RATE` | **0.035** | config | fee = ⌈0.035·C·p·(1−p)·100⌉/100 $ per lot. This is the taker rate **in force over the 2022–2024 sample**, which is what the backtest must charge. Kalshi's *current* schedule is 0.07 taker / 0.0175 maker, so limit orders are no longer fee-free; BL stays positive in every year at the new rate (both-side Sharpe 1.51/1.56/0.40 at 0.07, versus 1.97/1.90/0.68 at 0.035) |
+| Kalshi interest | **4.05% from 2024-10-10, nothing before** (`KALSHI_INTEREST_START`, `KALSHI_INTEREST_RATE`), accrued daily on posted collateral | config, `backtest.run` | Kalshi announced interest on cash and open positions on 10 Oct 2024. Only posted collateral is credited because idle cash is assumed to earn rf elsewhere (see §6). An earlier version credited 3.75% on the whole account in every year, which was wrong for 2022-2023 |
+| Execution timing | **same close**: a signal fills at the Kalshi close of the day whose option chain produced it | `signals.generate`, `backtest.run` | option quotes are the day's last quotes (probably the 4:15pm SPXW close) against Kalshi's 4:00pm candle, so this can carry up to 15 minutes of lookahead. `analysis/execution_lag.py` reruns with the model one and two priced days old (`density.lag_pmf_table`, `run.full(lag=)`), re-testing every signal at the fill-day book: BL 0.86 / −0.09 / 0.50 at one day |
 | Settlement | $1 if year-end close ∈ [L,U] | `backtest.run` | `SPX_YEAR_END_CLOSE` = {2022:3839.50, 2023:4769.83, 2024:5881.63} (actual S&P 500 cash closes) |
 | Marking | **liquidation-side**: a long is marked at the bid, a short at the ask, of the last valid book; a book that is missing, empty (bid ≤ `MARK_MIN_BID`=2c & ask ≥ `MARK_MAX_ASK`=98c), wider than half the probability range (spread ≥ `MAX_BOOK_SPREAD`=0.50; every legitimate spread in 2022-2024 is ≤ 44c, so any cutoff from 45c to 84c gives identical results) or on a feed-outage day falls back to the last valid book, then the model | `kalshi_pmf.is_valid_book`, `feed_outage_days`, `backtest.run` | a position can only be exited at the side it would trade against, so mid overstated open positions by half a spread; an empty or outage book quotes phantom prices (2024-11-16..21 asks near 100c on mutually exclusive buckets) that once produced the whole reported 2024 drawdown |
 | Sub-strategies | both / buy-only / sell-only | `signals.generate(side=...)` | isolates directional performance |
@@ -170,20 +171,21 @@ smoother — see the unification note below.
 |---|---|---|---|
 | `TRADING_DAYS` | **252** | config | annualization factor, same for strategy and benchmark |
 | Return calendar | **trading days**: chain quote dates, clipped to the span Kalshi actually quoted | `trading_days` | the backtest ledger is calendar-daily (Kalshi trades 24/7) but the x252 factor describes trading days; sampling here also gives the SPX benchmark a real observation on every row instead of forward-filled zeros, and drops the 2022 days before the Kalshi market existed |
-| `BENCH_RF` | **= `KALSHI_APY`** (3.75%) | config | idle capital in a Kalshi account earns the APY, so that is the risk-free hurdle; rf_daily = APY/252 |
+| Risk-free rate | **option-implied**, r = −ln(DF)/T of each quote date (3.8% / 5.5% / 5.3% on average) | `rf_series` | a T-bill-like rate to the same year-end expiry the contracts settle on; no constant is hard-coded |
+| Excess return | trading P&L + Kalshi interest on collateral − rf × collateral | `excess_value` | the account is split into posted collateral (must sit at Kalshi, earns Kalshi's rate) and idle cash (assumed to earn rf elsewhere, so zero excess). All Sharpe, alpha, drawdown and bootstrap figures use this series, with no second rf subtraction |
 | Benchmark | SPX raw spot (price index) on the trading calendar | `spx_benchmark` | buy-and-hold; excludes dividends, which moves alpha by beta x ~1.5%/yr (under 0.1 pt here) |
 | Returns | simple daily pct_change, drop ±inf | `_daily_returns` | annualised return is arithmetic (mean x 252); the geometric figure differs by about sigma^2/2, under 0.1 pt here |
-| Sharpe | (annReturn − rf)/annVol | `summarize` | point estimate only; see the two rows below |
+| Sharpe | annExcess / annVol | `summarize` | point estimate only; see the two rows below |
 | Sharpe interval | stationary block bootstrap, 10,000 resamples, mean block 10 days | `sharpe_bootstrap_ci` | geometric block length preserves short-run dependence; intervals are 3-5 Sharpe units wide, so never quote the point estimate alone |
-| Sharpe sampling check | non-overlapping 5- and 20-day returns, averaged over all starting phases | `sharpe_at_frequency` | the sqrt(252) scaling assumes uncorrelated daily returns (lag-1 ranges -0.39 to +0.07). Magnitude moves with frequency (e.g. BL 2023: 2.25 daily, 2.11 at 5 days, 1.67 at 20) but the sign is identical at all three in 6 of 6 model-years |
-| Max drawdown | on **strategy** PV, full calendar path | `summarize` | a weekend trough is a real drawdown; not an annualised quantity |
+| Sharpe sampling check | non-overlapping 5- and 20-day returns, averaged over all starting phases | `sharpe_at_frequency` | the sqrt(252) scaling assumes uncorrelated daily returns (lag-1 ranges −0.18 to +0.04). Magnitude moves with frequency (e.g. BL 2023: 1.90 daily, 1.72 at 5 days, 1.16 at 20) but the sign is identical at all three in 6 of 6 model-years |
+| Max drawdown | on the **excess-value** series, full calendar path | `summarize` | a weekend trough is a real drawdown; not an annualised quantity |
 | `total_return` | (final incl. settlement)/start − 1 | `summarize` | end-to-end result INCLUDING the year-end payoff; for 2022 it covers only the ~6 months Kalshi existed, so it is not comparable to a full-year figure |
-| `ann_return_ex_apy` | annualised return of PV minus accrued interest | `summarize` | attribution only: how much of the raw return is passive platform carry (about 3%/yr). There is deliberately no separate ex-APY Sharpe, since with rf = APY the headline Sharpe already excludes the carry |
+| `ann_trading` / `ann_carry` | the two parts of `ann_excess`, on the same denominator so they add exactly | `summarize` | carry = Kalshi interest on collateral − rf × collateral, a cost of 0.6-1.9%/yr here; `total_return` is the nominal P&L of the Kalshi account itself and excludes rf on idle cash |
 | Alpha / beta | OLS of daily excess strategy return on excess SPX return | `summarize` | `alpha_ann` = daily alpha x 252; **t-statistics are Newey-West** (`_newey_west_t`), because daily returns are autocorrelated |
 | Newey-West lag | floor(4·(n/100)^(2/9)), i.e. 4 for a year of data | `_newey_west_t` | the standard data-derived rule, not a chosen constant; verified against statsmodels to 1e-15 |
 | Model ρ | corr of mark-to-market vs mark-to-model daily returns | `summarize` | executability of the ideal strategy |
 
-Alpha is only marginally distinguishable from zero: two of six model-years reach |t| of about 2 (BL 2023, t = 2.09; GBM 2022, t = 2.04); beta is small everywhere (|β| ≤ 0.04), and although BL 2023's is nominally significant it is economically negligible.
+Alpha is only marginally distinguishable from zero: GBM 2022 reaches t = 2.05, GBM 2024 is significantly negative (t = −2.39), and BL lies between t = 0.55 and 1.80. Beta is small everywhere (|β| ≤ 0.03); BL 2023's is nominally significant (t = 2.39) but economically negligible.
 
 ---
 

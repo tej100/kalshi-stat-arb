@@ -57,11 +57,11 @@ subgraph ST["⑥ STRATEGY"]
   MPMF --> G1["signals.generate(side)<br/>buy iff model_p > ask + h · sell iff model_p < bid − h<br/>h = entry_hurdle = 2·fee/|C| (PER CONTRACT, round trip)<br/>fee = ⌈0.035·|C|·100·p(1−p)⌉ / 100 (whole lot, $)"]
   KAL --> G1
   G1 --> TR["TRADES (raw signal log; re-fires daily)"]
-  TR --> B1["backtest.run<br/>execute with no-pyramiding cap · cash −= qty·price + fee<br/>mark liquidation-side: long→bid, short→ask of last valid book → model<br/>monthly APY on PV · settle $1 if close ∈ [L,U]"]
+  TR --> B1["backtest.run<br/>execute with no-pyramiding cap · cash −= qty·price + fee<br/>mark liquidation-side: long→bid, short→ask of last valid book → model<br/>Kalshi interest on collateral (from 2024-10-10 only) · settle $1 if close ∈ [L,U]"]
   MPMF --> B1
   KAL --> B1
-  B1 --> PV["portfolio_value (MtM+APY) · model_value · cash<br/>attrs: settlement · final_value · n_executed · n_signals"]
-  PV --> M1["metrics.summarize (returns sampled on TRADING days · rf = Kalshi APY)<br/>ann ret/vol/Sharpe (×252) · max-DD on full calendar path<br/>alpha/beta vs SPX spot with Newey-West t · model ρ · total_return (incl. settlement)<br/>+ sharpe_bootstrap_ci · sharpe_at_frequency · diagnostics.risk_summary"]
+  B1 --> PV["portfolio_value (MtM + Kalshi interest) · collateral · model_value · cash<br/>attrs: settlement · final_value · n_executed · n_signals"]
+  PV --> M1["metrics.summarize (returns sampled on TRADING days · excess_value: rf = option-implied r, collateral charged rf − Kalshi rate)<br/>ann excess/vol/Sharpe (×252) = trading + carry · max-DD on full calendar path<br/>alpha/beta vs SPX spot with Newey-West t · model ρ · total_return (incl. settlement)<br/>+ sharpe_bootstrap_ci · sharpe_at_frequency · diagnostics.risk_summary"]
   M1 --> OUT["PERFORMANCE TABLE  ·  run.full() orchestrates all"]
 end
 

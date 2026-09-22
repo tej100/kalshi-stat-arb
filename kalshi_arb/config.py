@@ -109,8 +109,8 @@ KALSHI_FEE_RATE = 0.035      # fee = ceil(rate * contracts * p * (1-p)) cents
 # 0.0175 maker rate), i.e. double, so a present-day replication would face
 # higher costs -- see PAPER_CHANGES.md. Kept at 0.035 because the backtest must
 # price the fees the strategy would actually have paid in-sample. With the
-# per-contract hurdle below, results are not fragile to this: BL both-side
-# Sharpe is 1.99/2.25/1.08 at 0.035 versus 1.53/1.92/0.81 at 0.07.
+# per-contract hurdle below, BL stays positive in every year at the new rate:
+# both-side Sharpe 1.97/1.90/0.68 at 0.035 versus 1.51/1.56/0.40 at 0.07.
 # Round trips per position, used to size the entry hurdle in signals.generate.
 # NOT a tunable: Kalshi charges the taker fee on BOTH fills of a market-order
 # round trip (open and close), so a signal must clear two fees to be worth

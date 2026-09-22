@@ -70,8 +70,8 @@ def _newey_west_t(y, x):
     """OLS of y on [1, x] with Newey-West (Bartlett) standard errors.
 
     Returns (intercept, slope, t_intercept, t_slope). Daily strategy returns here
-    are autocorrelated (thin books bounce and revert; lag-1 ranges from -0.39 to
-    +0.07 across runs), so plain OLS standard errors misstate significance.
+    are autocorrelated (thin books bounce and revert; lag-1 ranges from -0.18 to
+    +0.04 across model-years), so plain OLS standard errors misstate significance.
 
     The truncation lag is the Newey-West (1994) rule of thumb floor(4*(n/100)^(2/9)),
     which is a function of the sample size rather than a chosen constant (4 for
@@ -108,8 +108,8 @@ def trading_days(chain, year, index_like, kalshi=None) -> pd.DatetimeIndex:
     observations (53%) sit before the first possible trade and are structurally
     flat. Those are not days the strategy declined to trade, they are days it
     could not exist, and including them drags the mean and (more so) the
-    standard deviation toward zero -- 2022's Sharpe reads 1.53 with them and
-    2.15 without. The clip is the same rule already applied at the other end of
+    standard deviation toward zero -- 2022's Sharpe reads 1.35 with them and
+    1.97 without. The clip is the same rule already applied at the other end of
     the sample, where 2024's path stops with the option feed on 11-19; applying
     it at both ends makes the evaluation window the intersection of the two
     data sources, symmetrically.
