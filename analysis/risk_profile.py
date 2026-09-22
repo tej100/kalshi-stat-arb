@@ -78,7 +78,27 @@ def main():
     same = ((np.sign(F.sharpe_daily) == np.sign(F.sharpe_5day)) & (np.sign(F.sharpe_daily) == np.sign(F.sharpe_20day)))
     print(f"  sign identical at all three frequencies in {int(same.sum())} of {len(F)} model-years.")
 
+    print("\n=== 5. Stale marks: how much does marking a bucket with no valid book matter? ===")
+    print("  'book' carries the last valid book forward (headline); 'model' marks those days to the")
+    print("  model probability. A carried mark does not move (understates volatility); switching")
+    print("  between model and book marks adds noise of its own (overstates it). They bracket the truth.")
+    S = []
+    for method in ("bl", "gbm"):
+        pmf = density.build_pmf_table(chain, k, method=method)
+        for y in config.YEARS:
+            tr = signals.generate(pmf, k, y, side="both")
+            row = dict(model=method.upper(), year=y)
+            for sm in ("book", "model"):
+                m = backtest.run(tr, pmf, k, y, stale_mark=sm)
+                row["stale_share"] = m.attrs["stale_share"]
+                row[f"sharpe_{sm}"] = metrics.summarize(m, chain, y, kalshi=k)["sharpe"]
+                row[f"sharpe20_{sm}"] = metrics.sharpe_at_frequency(m, chain, y, 20, k)
+            S.append(row)
+    S = pd.DataFrame(S)
+    print(S.round(2).to_string(index=False))
+
     config.ARTIFACT_DIR.mkdir(exist_ok=True)
+    S.to_csv(config.ARTIFACT_DIR / "stale_marks.csv", index=False)
     R.to_csv(config.ARTIFACT_DIR / "risk_profile.csv", index=False)
     E.to_csv(config.ARTIFACT_DIR / "position_episodes.csv", index=False)
     F.to_csv(config.ARTIFACT_DIR / "sharpe_by_frequency.csv", index=False)

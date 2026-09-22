@@ -45,7 +45,7 @@ def collateral(positions) -> float:
                for p in positions.values())
 
 
-def run(trades, pmf_table, kalshi, year, start_cash=None):
+def run(trades, pmf_table, kalshi, year, start_cash=None, stale_mark="book"):
     """Run the backtest for one year. Returns a DataFrame indexed by date with
     portfolio_value (mark-to-market, incl. Kalshi interest) and model_value (mark-to-model),
     plus realized/unrealized/cash columns; the final row includes settlement.
@@ -55,7 +55,14 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
     be placed. Most of those rows are suppressed by the no-pyramiding cap below
     (already-at-capacity same-direction signals are skipped); the ones that
     actually change a position are recorded in `.attrs["executed_trades"]` on
-    the returned frame, which is the correct trade count to report."""
+    the returned frame, which is the correct trade count to report.
+
+    `stale_mark` decides how a position is marked on a day its bucket has no
+    valid book: "book" (default) carries the last valid book forward; "model"
+    marks it to that day's model probability where one exists. A carried mark
+    does not move, which can understate volatility; the "model" setting is the
+    check on how much (see RISK_PROFILE.md). `.attrs["stale_share"]` reports the
+    fraction of position-days marked from a carried book."""
     start_cash = config.START_CASH if start_cash is None else start_cash
     bid, ask = kalshi[year]["bid"], kalshi[year]["ask"]
     pmf = pmf_table[year]
@@ -70,6 +77,7 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
     cash = start_cash
     positions = {}
     last_mark = {}
+    n_marks = n_stale = 0
     realized_cum = 0.0
     rows = []
     executed = []
@@ -101,9 +109,15 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
             kb = bid.loc[d, b] / 100.0 if (d in bid.index and not pd.isna(bid.loc[d, b])) else np.nan
             ka = ask.loc[d, b] / 100.0 if (d in ask.index and not pd.isna(ask.loc[d, b])) else np.nan
             mp = pmf.loc[d, b] if (d in pmf.index and not pd.isna(pmf.loc[d, b])) else np.nan
-            if d not in outage and is_valid_book(kb, ka):
+            fresh = d not in outage and is_valid_book(kb, ka)
+            if fresh:
                 last_mark[b] = (kb, ka)
-            if b in last_mark:
+            n_marks += 1
+            if not fresh and b in last_mark:
+                n_stale += 1
+            if not fresh and stale_mark == "model" and not np.isnan(mp):
+                m = mp
+            elif b in last_mark:
                 lb, la = last_mark[b]
                 m = lb if q > 0 else la
             else:
@@ -146,5 +160,6 @@ def run(trades, pmf_table, kalshi, year, start_cash=None):
     m.attrs["n_signals"] = len(trades)                 # raw signal-log rows (re-fires daily)
     m.attrs["executed_trades"] = pd.DataFrame(executed) if executed else pd.DataFrame(
         columns=["day", "bucket", "qty", "price", "fee", "model_p"])
+    m.attrs["stale_share"] = n_stale / n_marks if n_marks else np.nan
     m.attrs["n_executed"] = len(executed)               # actual fills after the pyramiding cap
     return m

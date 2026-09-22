@@ -137,6 +137,32 @@ mid moves in a fill's favour by 0.65¢ per contract the next day and about 1.2¢
 five days, then stops. Part of the same-close result may therefore be the timing
 convention rather than the model, and the lagged column is the conservative reading.
 
+## 6. Stale marks
+
+Late in each year the buckets the index has left stop being quoted, so an open
+position there has no valid book. The headline marks it to the last valid book, which
+does not move. The share of position-days marked this way is 18% / 36% / 66% for BL
+(20% / 37% / 68% for GBM). A mark that does not move understates daily volatility,
+so the same run was repeated marking those days to the model probability instead:
+
+| model | year | stale share | daily Sharpe, book | daily Sharpe, model | 20-day Sharpe, book | 20-day Sharpe, model |
+|---|---|---|---|---|---|---|
+| BL | 2022 | 18% | 1.97 | 2.15 | 3.57 | 3.76 |
+| BL | 2023 | 36% | 1.90 | 0.98 | 1.16 | 1.07 |
+| BL | 2024 | 66% | 0.68 | 0.51 | 0.90 | 0.68 |
+| GBM | 2022 | 20% | 2.38 | 2.47 | 3.14 | 3.20 |
+| GBM | 2023 | 37% | 1.24 | 0.82 | 0.04 | 0.11 |
+| GBM | 2024 | 68% | −1.98 | −0.40 | −2.93 | −2.23 |
+
+Neither column is the truth. The carried book understates volatility; the model mark
+overstates it, because a position then jumps between a liquidation-side book price and a
+model probability as the book comes and goes. Total returns are identical under both,
+since the endpoints do not change. **The daily Sharpe is sensitive to this choice in
+2023 and 2024; the 20-day Sharpe, which averages over the switching, is not** (BL 1.16 vs
+1.07 in 2023, 0.90 vs 0.68 in 2024). BL 2023's daily 1.90 should be read with that in
+mind: its 20-day figure is closer to 1.1. GBM 2024's daily −1.98 is exaggerated by the
+same effect (steady carry losses on a book that barely moves); its sign is not in doubt.
+
 ## Limits
 
 Three years and 40–120 positions per model: these are descriptions of what happened,
