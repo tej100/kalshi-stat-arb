@@ -54,7 +54,8 @@ def eval_smile(smoother, strikes):
         cliff and extra peaks in the density (2.75 peaks vs 1.82 on affected days;
         bucket probabilities off by up to 15 cents).
     """
-    iv = smoother(np.asarray(strikes, float), clamp_wings=True)
+    flat = config.SMILE_WINGS == "flat" or not smoother.parametric
+    iv = smoother(np.asarray(strikes, float), clamp_wings=flat)
     if smoother.parametric:
         return np.maximum(iv, config.IV_MIN)
     return np.clip(iv, smoother.iv_min, smoother.iv_max)

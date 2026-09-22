@@ -71,7 +71,7 @@ def main():
     market = {y: kalshi_pmf.market_pmf(k, y) for y in k}            # Kalshi mid PMF
 
     # ---- 1. spread stationarity + half-life, per active bucket ----
-    rows, dk, dm, sp, dk2 = [], [], [], [], []
+    rows, dk, dm, sp, dk2, gd, gb = [], [], [], [], [], [], []
     for y in k:
         mdl, mkt = model[y], market[y]
         common = mdl.index.intersection(mkt.index)
@@ -92,6 +92,8 @@ def main():
             # the same change one day later (t+1 -> t+2) shares no endpoint with the
             # spread at t, so bid-ask bounce in the Kalshi mid cannot produce it
             dk2 += mm.diff().shift(-2)[v].tolist()
+            gd += [d.toordinal() for d in spread[v].index]          # cluster: date
+            gb += [f"{y}:{b}"] * int(v.sum())                        # cluster: bucket
 
     df = pd.DataFrame(rows)
     df["stationary"] = df["adf_p"] < 0.05
@@ -110,8 +112,17 @@ def main():
 
     # ---- 2. direction of adjustment (which venue error-corrects) ----
     sp, dk, dm = np.array(sp), np.array(dk), np.array(dm)
-    rk = sm.OLS(dk, sm.add_constant(sp)).fit()
-    rm = sm.OLS(dm, sm.add_constant(sp)).fit()
+    gd = np.array(gd); gb = pd.factorize(np.array(gb))[0]
+    # Standard errors clustered by DATE: every bucket on a day comes from one
+    # density and one Kalshi snapshot, so errors are correlated within a date.
+    # Two-way (date x bucket) clustering is reported as a check.
+    def fit(y, x, ok=slice(None)):
+        X = sm.add_constant(x[ok])
+        return (sm.OLS(y[ok], X).fit(cov_type="cluster", cov_kwds={"groups": gd[ok]}),
+                sm.OLS(y[ok], X).fit(cov_type="cluster",
+                                     cov_kwds={"groups": np.column_stack([gd[ok], gb[ok]])}))
+    rk, rk2 = fit(dk, sp)
+    rm, rm2 = fit(dm, sp)
     bk, bm = rk.params[1], rm.params[1]
     print("\n=== 2. Direction of adjustment (error correction), spread = Kalshi - model ===")
     print(f"n bucket-days:               {len(sp)}")
@@ -119,12 +130,13 @@ def main():
           f"(negative => Kalshi corrects toward model)")
     print(f"d(model)_next  ~ spread:     coef {bm:+.3f}  t {rm.tvalues[1]:+.1f}  "
           f"(positive => options drift toward Kalshi)")
-    print("  (plain OLS t-stats: bucket-days are serially and cross-sectionally dependent and the")
-    print("   Kalshi mid carries bid-ask bounce, so treat them as an upper bound on significance.)")
+    print(f"  (t-stats clustered by date; two-way date x bucket: Kalshi {rk2.tvalues[1]:+.1f}, "
+          f"model {rm2.tvalues[1]:+.1f})")
     print(f"share of correction by KALSHI leg: {abs(bk)/(abs(bk)+abs(bm))*100:.0f}%")
     dk2 = np.array(dk2); ok = ~np.isnan(dk2)
-    r2 = sm.OLS(dk2[ok], sm.add_constant(sp[ok])).fit()
-    print(f"d(Kalshi) t+1->t+2 ~ spread: coef {r2.params[1]:+.3f}  t {r2.tvalues[1]:+.1f}  n {ok.sum()}  "
+    r2, r22 = fit(dk2, sp, ok)
+    print(f"d(Kalshi) t+1->t+2 ~ spread: coef {r2.params[1]:+.3f}  t {r2.tvalues[1]:+.1f}  "
+          f"(two-way {r22.tvalues[1]:+.1f})  n {ok.sum()}  dates {len(np.unique(gd[ok]))}  "
           f"(no shared endpoint: bounce-free)")
 
     # ---- 3. P&L attribution: carry vs trading path vs settlement ----

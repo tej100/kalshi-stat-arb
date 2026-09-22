@@ -26,31 +26,18 @@ def _transform(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _mid_price(df: pd.DataFrame) -> pd.DataFrame:
-    """Mid = (bid+ask)/2 when both present; one-sided quotes assume the missing
-    side = 0 (mid = present/2) and are kept only if a vendor-IV BSM price is
-    within ONE_SIDED_BSM_TOL of that theoretical mid."""
+    """Mid = (bid+ask)/2. One-sided quotes are dropped.
+
+    A quote with only one side has no mid. An earlier rule imputed the missing
+    side as zero and kept the quote if a vendor-IV BSM price was near the result,
+    but that is meaningless for a bid-only quote (the "mid" falls below the bid),
+    and its tolerance had no effect on any result. The 1,892 one-sided quotes
+    (1,881 ask-only) are simply removed: pricing error improves (MAE $1.93 ->
+    $1.85) and BL Sharpe moves by at most 0.08 (2022)."""
     df = df.copy()
-    both = df["Bid"].notna() & df["Ask"].notna()
-    one = (df["Bid"].notna() ^ df["Ask"].notna())
-
-    df["Mid"] = np.nan
-    df.loc[both, "Mid"] = df.loc[both, ["Bid", "Ask"]].mean(axis=1)
-    # one-sided: present side / 2
-    present = df[["Bid", "Ask"]].max(axis=1)
-    df.loc[one, "Mid"] = present[one] / 2.0
-
-    # validate one-sided quotes against BSM at vendor IV (drop if no IV or too far)
-    val = df[one & df["IV"].notna()].copy()
-    if not val.empty:
-        model = pricing.bsm_price(val["option_type"].values, val["underlying"],
-                                  val["strike"], val["T"], val["r"], val["IV"])
-        keep = np.abs(model - val["Mid"]) <= config.ONE_SIDED_BSM_TOL
-        drop_idx = val.index[~keep.values]
-    else:
-        drop_idx = pd.Index([])
-    # one-sided with no vendor IV cannot be validated -> drop
-    drop_idx = drop_idx.union(df.index[one & df["IV"].isna()])
-    return df.drop(index=drop_idx)
+    one = df["Bid"].notna() ^ df["Ask"].notna()
+    df["Mid"] = (df["Bid"] + df["Ask"]) / 2.0
+    return df[~one]
 
 
 def _drop_arbitrage_violations(df: pd.DataFrame, verbose: bool) -> pd.DataFrame:
@@ -132,10 +119,14 @@ def clean_chain(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     df = _transform(df)
     df = _mid_price(df)
 
-    # liquidity: drop wide two-sided spreads
-    both = df["Bid"].notna() & df["Ask"].notna()
-    spread_frac = (df["Ask"] - df["Bid"]) / df["Mid"]
-    df = df.drop(index=df.index[both & (spread_frac > config.MAX_SPREAD_FRAC)])
+    # No bid-ask spread filter by default. An inherited 30%-of-mid cutoff was
+    # removed: it was not derived, the smile is fitted on out-of-the-money quotes
+    # only, and the results barely depend on it (BL Sharpe 1.97 / 1.90 / 0.68 with
+    # it, 1.98 / 1.90 / 0.55 without). config.MAX_SPREAD_FRAC re-enables it for
+    # the appendix sensitivity table only.
+    if config.MAX_SPREAD_FRAC is not None:
+        spread_frac = (df["Ask"] - df["Bid"]) / df["Mid"]
+        df = df[~(spread_frac > config.MAX_SPREAD_FRAC)]
 
     # moneyness outlier filter, computed WITHIN each quote date. Pooling the mean and
     # std over the whole 2022-2024 sample would let a quote's fate depend on data from

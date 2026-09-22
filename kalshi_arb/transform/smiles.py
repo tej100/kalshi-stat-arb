@@ -170,5 +170,6 @@ REGISTRY = {c.name: c for c in [LSQSpline, CubicSpline, Polyfit, Pchip, Lowess, 
 def fit_smile(K, iv, F, T, method=None):
     """Fit the named smoother (default config.SMILE_METHOD). None if it fails."""
     method = config.SMILE_METHOD if method is None else method
-    sm = REGISTRY[method]().fit(K, iv, F, T)
+    sm = (REGISTRY[method](beta=config.SABR_BETA) if method == "sabr"
+          else REGISTRY[method]()).fit(K, iv, F, T)
     return sm if sm.ok else None

@@ -88,6 +88,8 @@ def run(trades, pmf_table, kalshi, year, start_cash=None, stale_mark="book"):
         if d in trades_by_day:
             for _, t in trades_by_day[d].iterrows():
                 cur = positions.get(t["bucket"], {}).get("qty", 0.0)
+                if t.get("exit_only", False) and (cur == 0 or np.sign(cur) == np.sign(t["qty"])):
+                    continue                     # an exit row never opens a position
                 cap = config.MAX_LOTS_PER_BUCKET * abs(t["qty"])
                 if cur != 0 and np.sign(cur) == np.sign(t["qty"]) and abs(cur) >= cap:
                     continue

@@ -15,9 +15,10 @@ KALSHI_PKL = ROOT / "kalshi_data.pkl"       # {year: {tickers, bid, ask, price}}
 ARTIFACT_DIR = ROOT / "artifacts"           # generated outputs (created on demand)
 
 # ---- cleaning thresholds ---------------------------------------------------
-MAX_SPREAD_FRAC = 0.30       # drop quote if (ask-bid)/mid exceeds this
+# Bid-ask spread filter: OFF. An inherited 30%-of-mid cutoff was removed (see
+# clean.clean_chain); the knob remains only so the appendix can show its effect.
+MAX_SPREAD_FRAC = None
 MONEYNESS_SIGMA = 2.0        # drop quotes > this many std from that QUOTE DATE's mean moneyness
-ONE_SIDED_BSM_TOL = 0.50     # $ tolerance to keep a one-sided (assumed-0) mid-price
 IV_MIN, IV_MAX = 0.01, 5.0   # bisection search bounds for implied vol (decimal)
 # No-arbitrage price-bound filter (transform/clean._drop_arbitrage_violations) is
 # an EXACT rule (intrinsic <= mid <= upper) with no tunable threshold, so there is
@@ -32,6 +33,16 @@ IV_MIN, IV_MAX = 0.01, 5.0   # bisection search bounds for implied vol (decimal)
 # ~arbitrage-free -- see SMOOTHING_COMPARISON.md). Options: sabr | svi | lsq |
 # cubic | poly | pchip | lowess.
 SMILE_METHOD = "sabr"
+# SABR beta is fixed, not calibrated: for a single expiry beta and rho both act
+# on the slope of the smile and are close to unidentified jointly, so fixing one
+# is the standard practice. 0.5 is the usual compromise between the normal (0)
+# and lognormal (1) backbones; results at 0 and 1 are in the paper's appendix.
+SABR_BETA = 0.5
+# Beyond the last quoted strike the smile is held flat ("flat") or the fitted
+# parametric curve is extended ("model"). Flat is the conservative default but
+# puts a kink in the smile at the last strike, which the isotonic projection in
+# density._density_from_smile then repairs (a median 1.8% of mass per day).
+SMILE_WINGS = "flat"
 SMILE_KNOTS = 6             # interior knots when SMILE_METHOD="lsq" (modest: the
                             # BL density is the 2nd derivative and amplifies
                             # over-fitting).
@@ -47,8 +58,6 @@ SMILE_KNOTS = 6             # interior knots when SMILE_METHOD="lsq" (modest: th
 GRID_PAD_LOW = 2000.0        # extend grid this far below min observed strike
 GRID_PAD_HIGH = 1000.0       # extend grid this far above max observed strike
 GRID_POINTS = 5000
-DENSITY_SMOOTH_WINDOW = 25    # grid points (~$30) for light mass-preserving
-                              # smoothing of the density; removes boundary kinks
 # NOTE: there is deliberately NO staleness-tolerance parameter for the model
 # PMF (transform/density.build_pmf_table requires an exact same-calendar-day
 # option chain; no forward/back-fill of any kind). This was a considered and
@@ -110,7 +119,8 @@ KALSHI_FEE_RATE = 0.035      # fee = ceil(rate * contracts * p * (1-p)) cents
 # higher costs -- see PAPER_CHANGES.md. Kept at 0.035 because the backtest must
 # price the fees the strategy would actually have paid in-sample. With the
 # per-contract hurdle below, BL stays positive in every year at the new rate:
-# both-side Sharpe 1.97/1.90/0.68 at 0.035 versus 1.51/1.56/0.40 at 0.07.
+# both-side Sharpe 1.98/1.90/0.55 (pooled 1.44) at 0.035 versus 1.51/1.66/0.40
+# (pooled 1.16) at 0.07.
 # Round trips per position, used to size the entry hurdle in signals.generate.
 # NOT a tunable: Kalshi charges the taker fee on BOTH fills of a market-order
 # round trip (open and close), so a signal must clear two fees to be worth

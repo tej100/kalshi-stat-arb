@@ -47,12 +47,18 @@ def entry_hurdle(price, contracts):
             * kalshi_fee(price, contracts) / abs(contracts))
 
 
-def generate(pmf_table, kalshi, year, side="both", lot=None):
+def generate(pmf_table, kalshi, year, side="both", lot=None, exit_rule="signal"):
     """Return a trades DataFrame for one year.
 
     Columns: day, bucket, qty (signed contracts), price (execution, 0-1),
              fee ($ per lot), model_p.
     side in {'both','buy','sell'}.
+
+    exit_rule "signal" (default): a position closes only when the opposite ENTRY
+    signal fires. "convergence": it also closes as soon as the mispricing is gone,
+    i.e. a long once the bid reaches the model probability and a short once the
+    ask falls to it. Those rows carry exit_only=True, so the backtest uses them
+    only to close an open position, never to open one.
     """
     lot = config.LOT_SIZE if lot is None else lot
     pmf = pmf_table[year]
@@ -75,8 +81,15 @@ def generate(pmf_table, kalshi, year, side="both", lot=None):
                 continue
             if side in ("both", "buy") and mp > ka + entry_hurdle(ka, lot):
                 rows.append(dict(day=day, bucket=bucket, qty=lot, price=ka,
-                                 fee=kalshi_fee(ka, lot), model_p=mp))
+                                 fee=kalshi_fee(ka, lot), model_p=mp, exit_only=False))
             elif side in ("both", "sell") and mp < kb - entry_hurdle(kb, lot):
                 rows.append(dict(day=day, bucket=bucket, qty=-lot, price=kb,
-                                 fee=kalshi_fee(kb, lot), model_p=mp))
+                                 fee=kalshi_fee(kb, lot), model_p=mp, exit_only=False))
+            elif exit_rule == "convergence":
+                if kb >= mp:     # a long can now be sold at or above fair value
+                    rows.append(dict(day=day, bucket=bucket, qty=-lot, price=kb,
+                                     fee=kalshi_fee(kb, lot), model_p=mp, exit_only=True))
+                elif ka <= mp:   # a short can now be bought back at or below fair value
+                    rows.append(dict(day=day, bucket=bucket, qty=lot, price=ka,
+                                     fee=kalshi_fee(ka, lot), model_p=mp, exit_only=True))
     return pd.DataFrame(rows)

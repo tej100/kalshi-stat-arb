@@ -48,8 +48,6 @@ def bl_density_blend(day_df, lam):
     DF = np.exp(-r * T)
     fp = _isotonic_increasing(np.clip(np.gradient(calls, grid), -DF, 0.0))
     dens = np.clip(np.exp(r * T) * np.gradient(fp, grid), 0.0, None)
-    w = config.DENSITY_SMOOTH_WINDOW
-    dens = np.convolve(dens, np.ones(w) / w, mode="same")
     return grid[2:-2], dens[2:-2]
 
 

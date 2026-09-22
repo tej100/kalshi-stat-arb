@@ -200,25 +200,9 @@ def summarize(m: pd.DataFrame, chain, year, n_trades=None, kalshi=None) -> dict:
     )
 
 
-def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
-                        mean_block=10, alpha=0.05, seed=0, kalshi=None) -> dict:
-    """Stationary block-bootstrap confidence interval for the Sharpe ratio.
-
-    The point estimate is fragile here and should never be quoted bare: the book
-    is a ~$200 base turning over a few dozen lots a year, so daily returns are
-    lumpy and heavy-tailed (excess kurtosis 6.6-28.4 by year). A plain i.i.d.
-    bootstrap would understate the spread because the mark-to-market path is
-    serially dependent, so blocks of geometrically-distributed length (mean
-    `mean_block` days) are resampled instead, which preserves short-run
-    dependence.
-
-    Returns the point estimate, the interval, and the share of resamples above
-    0 and above 1 -- the useful summary being that the SIGN is well determined
-    while the MAGNITUDE is not.
-    """
+def _block_bootstrap_sharpe(r: pd.Series, reps, mean_block, alpha, seed) -> dict:
+    """Stationary block bootstrap (Politis-Romano) of the annualised Sharpe of `r`."""
     rng = np.random.default_rng(seed)
-    td = trading_days(chain, year, m.index, kalshi)
-    r = _daily_returns(excess_value(m, chain).loc[td])
     v = r.values
     n = len(v)
     if n < 30:
@@ -239,6 +223,41 @@ def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
     return dict(sharpe=_sharpe(v), lo=lo, hi=hi,
                 p_gt0=float(np.nanmean(out > 0)), p_gt1=float(np.nanmean(out > 1)),
                 n=n, kurtosis=float(r.kurt()))
+
+
+def sharpe_bootstrap_ci(m: pd.DataFrame, chain, year, reps=10000,
+                        mean_block=10, alpha=0.05, seed=0, kalshi=None) -> dict:
+    """Stationary block-bootstrap confidence interval for the Sharpe ratio.
+
+    The point estimate is fragile here and should never be quoted bare: the book
+    is a ~$200 base turning over a few dozen lots a year, so daily returns are
+    lumpy and heavy-tailed. A plain i.i.d. bootstrap would understate the spread
+    because the mark-to-market path is serially dependent, so blocks of
+    geometrically-distributed length (mean `mean_block` days) are resampled
+    instead, which preserves short-run dependence.
+
+    Returns the point estimate, the interval, and the share of resamples above
+    0 and above 1.
+    """
+    td = trading_days(chain, year, m.index, kalshi)
+    r = _daily_returns(excess_value(m, chain).loc[td])
+    return _block_bootstrap_sharpe(r, reps, mean_block, alpha, seed)
+
+
+def pooled_sharpe_ci(results: dict, chain, reps=10000, mean_block=10, alpha=0.05,
+                     seed=0, kalshi=None) -> dict:
+    """Sharpe and block-bootstrap CI of the daily excess returns of several years
+    stacked into one series. `results` maps year -> backtest frame.
+
+    A single year has 114-240 trading days, too few for the interval to exclude
+    zero even at a Sharpe near 2; pooling the three years is the test with enough
+    power to say whether the edge is there at all. Years are stacked, not
+    compounded: each year's returns are sampled within its own live window."""
+    rs = []
+    for year, m in sorted(results.items()):
+        td = trading_days(chain, year, m.index, kalshi)
+        rs.append(_daily_returns(excess_value(m, chain).loc[td]))
+    return _block_bootstrap_sharpe(pd.concat(rs), reps, mean_block, alpha, seed)
 
 
 def sharpe_at_frequency(m: pd.DataFrame, chain, year, step: int, kalshi=None) -> float:
